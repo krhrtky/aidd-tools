@@ -1,0 +1,394 @@
+{
+  "@context": "https://aidd.dev/context/v1",
+  "schemaVersion": "1.1",
+  "specId": "withdraw",
+  "@graph": [
+    {
+      "@id": "urn:aidd:withdraw:requirement:operation",
+      "@type": "Requirement",
+      "label": "withdraw is a total pure function",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 3,
+          "startColumn": 1,
+          "endLine": 3,
+          "endColumn": 76,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:parameter:balance",
+      "@type": "Parameter",
+      "label": "balance",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "valueType": {
+        "kind": "int"
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 4,
+          "startColumn": 1,
+          "endLine": 4,
+          "endColumn": 83,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:parameter:amount",
+      "@type": "Parameter",
+      "label": "amount",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "valueType": {
+        "kind": "int"
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 4,
+          "startColumn": 1,
+          "endLine": 4,
+          "endColumn": 83,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:result:new-balance",
+      "@type": "Result",
+      "label": "newBalance",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "valueType": {
+        "kind": "int"
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 4,
+          "startColumn": 1,
+          "endLine": 4,
+          "endColumn": 83,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:operation:withdraw",
+      "@type": "Operation",
+      "label": "withdraw",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "accepts": [
+        "urn:aidd:withdraw:parameter:balance",
+        "urn:aidd:withdraw:parameter:amount"
+      ],
+      "returns": [
+        "urn:aidd:withdraw:result:new-balance"
+      ],
+      "mayFailWith": [
+        "urn:aidd:withdraw:error:invalid-balance",
+        "urn:aidd:withdraw:error:invalid-amount",
+        "urn:aidd:withdraw:error:insufficient-funds"
+      ],
+      "derivesFrom": [
+        "urn:aidd:withdraw:requirement:operation"
+      ],
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 3,
+          "startColumn": 1,
+          "endLine": 4,
+          "endColumn": 83,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:precondition:success",
+      "@type": "Precondition",
+      "label": "balance and amount permit withdrawal",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "expression": {
+        "op": "and",
+        "args": [
+          {
+            "op": "gte",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "op": "gt",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "op": "gte",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              },
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 5,
+          "startColumn": 1,
+          "endLine": 5,
+          "endColumn": 82,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:postcondition:subtract",
+      "@type": "Postcondition",
+      "label": "new balance is balance minus amount",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "expression": {
+        "op": "eq",
+        "args": [
+          {
+            "op": "valueRef",
+            "id": "urn:aidd:withdraw:result:new-balance"
+          },
+          {
+            "op": "sub",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              },
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 6,
+          "startColumn": 1,
+          "endLine": 6,
+          "endColumn": 52,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:error:invalid-balance",
+      "@type": "Error",
+      "label": "InvalidBalance",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "expression": {
+        "op": "lt",
+        "args": [
+          {
+            "op": "valueRef",
+            "id": "urn:aidd:withdraw:parameter:balance"
+          },
+          {
+            "op": "literal",
+            "value": 0
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 7,
+          "startColumn": 1,
+          "endLine": 7,
+          "endColumn": 44,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:error:invalid-amount",
+      "@type": "Error",
+      "label": "InvalidAmount",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "expression": {
+        "op": "and",
+        "args": [
+          {
+            "op": "gte",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "op": "lte",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 8,
+          "startColumn": 1,
+          "endLine": 8,
+          "endColumn": 62,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:error:insufficient-funds",
+      "@type": "Error",
+      "label": "InsufficientFunds",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "expression": {
+        "op": "and",
+        "args": [
+          {
+            "op": "gte",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "op": "gt",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              },
+              {
+                "op": "literal",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "op": "gt",
+            "args": [
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:amount"
+              },
+              {
+                "op": "valueRef",
+                "id": "urn:aidd:withdraw:parameter:balance"
+              }
+            ]
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 9,
+          "startColumn": 1,
+          "endLine": 9,
+          "endColumn": 86,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:withdraw:contract:withdraw",
+      "@type": "Contract",
+      "label": "withdraw contract",
+      "status": "candidate",
+      "basis": "stated",
+      "generatedBy": "llm",
+      "total": true,
+      "defines": [
+        "urn:aidd:withdraw:operation:withdraw"
+      ],
+      "constrains": [
+        "urn:aidd:withdraw:precondition:success",
+        "urn:aidd:withdraw:postcondition:subtract",
+        "urn:aidd:withdraw:error:invalid-balance",
+        "urn:aidd:withdraw:error:invalid-amount",
+        "urn:aidd:withdraw:error:insufficient-funds"
+      ],
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 3,
+          "startColumn": 1,
+          "endLine": 9,
+          "endColumn": 86,
+          "sha256": "848cd096166314a0b9b3a9e1563b5e8fad8d5446a751de0dbf18ceadc627f80c"
+        }
+      ]
+    }
+  ]
+}

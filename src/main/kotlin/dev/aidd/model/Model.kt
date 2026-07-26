@@ -19,7 +19,31 @@ data class ModelNode(
     val relations: Map<String, List<String>>,
     val expression: JsonNode?,
     val generatedBy: String?,
+    val valueType: ValueType? = null,
+    val members: List<String> = emptyList(),
+    val total: Boolean? = null,
 )
+
+data class ValueType(
+    val kind: ValueKind,
+    val typeId: String? = null,
+    val elementType: ValueType? = null,
+)
+
+enum class ValueKind(val wireValue: String) {
+    INT("int"),
+    BOOL("bool"),
+    STRING("string"),
+    ENUM("enum"),
+    SET("set"),
+    LIST("list");
+
+    companion object {
+        fun fromWire(value: String): ValueKind =
+            entries.firstOrNull { it.wireValue == value }
+                ?: throw IllegalArgumentException("Unsupported value type: $value")
+    }
+}
 
 data class Evidence(
     val path: String,
@@ -79,6 +103,8 @@ object Vocabulary {
         "Contract",
         "Evidence",
         "HumanDecision",
+        "Parameter",
+        "Result",
     )
 
     val relations = setOf(
@@ -93,6 +119,8 @@ object Vocabulary {
         "evidencedBy",
         "contradicts",
         "supersedes",
+        "accepts",
+        "returns",
+        "mayFailWith",
     )
 }
-

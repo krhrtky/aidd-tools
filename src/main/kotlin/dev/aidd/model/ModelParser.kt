@@ -28,6 +28,7 @@ class ModelParser(
         node.requireOnlyFields(
             setOf(
                 "@id", "@type", "label", "status", "basis", "generatedBy", "evidence", "expression",
+                "valueType", "members", "total",
             ) + Vocabulary.relations,
             "graph node",
         )
@@ -35,6 +36,13 @@ class ModelParser(
         node.get("generatedBy")?.let { require(it.isTextual) { "generatedBy must be a string" } }
         node.get("evidence")?.let { require(it.isArray) { "evidence must be an array" } }
         node.get("expression")?.let { require(it.isObject) { "expression must be an object" } }
+        node.get("valueType")?.let { require(it.isObject) { "valueType must be an object" } }
+        node.get("members")?.let { members ->
+            require(members.isArray && members.size() > 0 && members.all { it.isTextual && it.asText().isNotBlank() }) {
+                "members must be a non-empty array of non-empty strings"
+            }
+        }
+        node.get("total")?.let { require(it.isBoolean) { "total must be a boolean" } }
         val evidence = node.path("evidence").takeIf(JsonNode::isArray)?.map(::parseEvidence).orEmpty()
         val relations = Vocabulary.relations.associateWith { relation ->
             val value = node.get(relation)
@@ -57,18 +65,38 @@ class ModelParser(
             relations = relations,
             expression = node.get("expression"),
             generatedBy = node.path("generatedBy").takeIf(JsonNode::isTextual)?.asText(),
+            valueType = node.get("valueType")?.let(::parseValueType),
+            members = node.path("members").takeIf(JsonNode::isArray)?.map(JsonNode::asText).orEmpty(),
+            total = node.get("total")?.takeIf(JsonNode::isBoolean)?.asBoolean(),
         )
     }
 
     private fun validateExpressionFields(expression: JsonNode) {
         require(expression.isObject) { "expression must be an object" }
         expression.requireOnlyFields(
-            setOf("op", "id", "name", "value", "variable", "domain", "body", "args"),
+            setOf(
+                "op", "id", "name", "value", "variable", "domain", "body", "args",
+                "typeId", "member", "valueType",
+            ),
             "expression",
         )
         expression.path("args").takeIf(JsonNode::isArray)?.forEach(::validateExpressionFields)
         expression.path("domain").takeIf(JsonNode::isObject)?.let(::validateExpressionFields)
         expression.path("body").takeIf(JsonNode::isObject)?.let(::validateExpressionFields)
+        expression.path("valueType").takeIf(JsonNode::isObject)?.let(::parseValueType)
+    }
+
+    private fun parseValueType(node: JsonNode): ValueType {
+        require(node.isObject) { "valueType must be an object" }
+        node.requireOnlyFields(setOf("kind", "typeId", "elementType"), "valueType")
+        val kind = ValueKind.fromWire(node.requiredText("kind"))
+        node.get("typeId")?.let { require(it.isTextual && it.asText().isNotBlank()) { "typeId must be a string" } }
+        node.get("elementType")?.let { require(it.isObject) { "elementType must be an object" } }
+        return ValueType(
+            kind = kind,
+            typeId = node.path("typeId").takeIf(JsonNode::isTextual)?.asText(),
+            elementType = node.get("elementType")?.let(::parseValueType),
+        )
     }
 
     private fun parseEvidence(node: JsonNode): Evidence {

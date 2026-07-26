@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.aidd.alloy.AlloyCompiler
 import dev.aidd.alloy.AlloyRunner
 import dev.aidd.alloy.Bounds
+import dev.aidd.alloy.ClaimSelection
 import dev.aidd.alloy.VerificationResult
 import dev.aidd.alloy.VerificationStatus
 import dev.aidd.backport.BackportService
@@ -48,8 +49,14 @@ class AiddCli(
             outputDirectory = args.requiredPath("--out"),
             arguments = args.raw,
         )
+        "explore" -> exploreModel(
+            modelPath = args.requiredPath("--model"),
+            boundsPath = args.optionalPath("--bounds"),
+            outputDirectory = args.requiredPath("--out"),
+            arguments = args.raw,
+        )
         "render" -> renderModel(args.requiredPath("--model"), args.requiredPath("--out"))
-        else -> usage("Expected formalize validate, check, render, or run")
+        else -> usage("Expected formalize validate, check, explore, render, or run")
     }
 
     private fun executeBackport(args: Arguments): Int = when (args.positional(1)) {
@@ -129,6 +136,75 @@ class AiddCli(
         SafePaths.writeText(safeOutputDirectory.resolve("spec.md"), renderer.renderAccepted(model))
         writeManifest(safeOutputDirectory, targetModel, bounds, verification, arguments, model)
         return exitCode(verification.status)
+    }
+
+    private fun exploreModel(
+        modelPath: Path,
+        boundsPath: Path?,
+        outputDirectory: Path,
+        arguments: List<String>,
+    ): Int {
+        val validation = validator.validate(modelPath)
+        if (!validation.isValid) {
+            return validateModel(modelPath)
+        }
+        if (validation.requiresHumanReview) {
+            validateModel(modelPath)
+            return 5
+        }
+        val model = validation.model!!
+        val bounds = boundsPath?.let(Bounds::read) ?: Bounds.defaultExploration()
+        val safeOutputDirectory = SafePaths.directory(outputDirectory)
+        val counterexamples = safeOutputDirectory.resolve("counterexamples")
+        SafePaths.resetGeneratedDirectory(counterexamples)
+        val targetModel = safeOutputDirectory.resolve("model.jsonld")
+        if (modelPath.toAbsolutePath().normalize() != targetModel.toAbsolutePath().normalize()) {
+            SafePaths.copy(modelPath, targetModel)
+        }
+        val alloy = try {
+            compiler.compile(model, bounds, ClaimSelection.ACCEPTED_AND_CANDIDATE)
+        } catch (exception: Exception) {
+            val message = exception.message ?: exception::class.java.simpleName
+            SafePaths.writeText(
+                safeOutputDirectory.resolve("model.als"),
+                "// Candidate model could not be compiled: $message\n",
+            )
+            JsonOutput.write(safeOutputDirectory.resolve("bounds.json"), bounds)
+            val unsupported = VerificationResult(
+                status = VerificationStatus.UNSUPPORTED,
+                boundedOutcome = null,
+                scope = bounds,
+                commands = emptyList(),
+                diagnostics = listOf(message),
+            )
+            JsonOutput.write(safeOutputDirectory.resolve("verification.json"), unsupported)
+            SafePaths.writeText(safeOutputDirectory.resolve("candidate-spec.md"), renderer.renderCandidates(model))
+            writeManifest(
+                outputDirectory = safeOutputDirectory,
+                modelPath = targetModel,
+                bounds = bounds,
+                verification = unsupported,
+                arguments = arguments,
+                model = model,
+                mode = "candidate-exploration",
+            )
+            return 4
+        }
+        SafePaths.writeText(safeOutputDirectory.resolve("model.als"), alloy)
+        JsonOutput.write(safeOutputDirectory.resolve("bounds.json"), bounds)
+        val verification = runner.run(alloy, bounds, counterexamples, forceProvisional = true)
+        JsonOutput.write(safeOutputDirectory.resolve("verification.json"), verification)
+        SafePaths.writeText(safeOutputDirectory.resolve("candidate-spec.md"), renderer.renderCandidates(model))
+        writeManifest(
+            outputDirectory = safeOutputDirectory,
+            modelPath = targetModel,
+            bounds = bounds,
+            verification = verification,
+            arguments = arguments,
+            model = model,
+            mode = "candidate-exploration",
+        )
+        return explorationExitCode(verification)
     }
 
     private fun renderModel(modelPath: Path, output: Path): Int {
@@ -270,9 +346,17 @@ class AiddCli(
         verification: VerificationResult,
         arguments: List<String>,
         model: dev.aidd.model.AiddModel,
+        mode: String = "accepted-verification",
     ) {
         val outputHashes = linkedMapOf<String, String>()
-        val generated = mutableListOf("model.jsonld", "model.als", "bounds.json", "verification.json", "spec.md")
+        val renderedSpecification = if (mode == "candidate-exploration") "candidate-spec.md" else "spec.md"
+        val generated = mutableListOf(
+            "model.jsonld",
+            "model.als",
+            "bounds.json",
+            "verification.json",
+            renderedSpecification,
+        )
         Files.list(outputDirectory.resolve("counterexamples")).use { entries ->
             generated += entries
                 .filter { Files.isRegularFile(it) }
@@ -288,12 +372,38 @@ class AiddCli(
             put("schemaVersion", "1.0")
             put("toolVersion", "0.1.0")
             put("alloyVersion", "6.2.0")
+            put("mode", mode)
             put("inputModelSha256", Hashing.sha256(modelPath))
             set<ObjectNode>("bounds", JsonOutput.mapper.valueToTree(bounds))
             put("status", verification.status.name)
             putArray("arguments").also { array -> arguments.forEach(array::add) }
             putArray("assumptions").also { array ->
-                model.nodes.filter { it.type == "Assumption" }.sortedBy { it.id }.forEach { array.add(it.label) }
+                model.nodes
+                    .filter {
+                        it.type == "Assumption" &&
+                            (mode != "candidate-exploration" ||
+                                it.status != dev.aidd.model.ClaimStatus.REJECTED)
+                    }
+                    .sortedBy { it.id }
+                    .forEach { array.add(it.label) }
+            }
+            if (mode == "candidate-exploration") {
+                putArray("targetClaimIds").also { array ->
+                    model.nodes
+                        .filter { it.status != dev.aidd.model.ClaimStatus.REJECTED }
+                        .sortedBy { it.id }
+                        .forEach { array.add(it.id) }
+                }
+                putObject("claimStatusCounts").also { counts ->
+                    dev.aidd.model.ClaimStatus.entries
+                        .sortedBy { it.wireValue }
+                        .forEach { status ->
+                            counts.put(
+                                status.wireValue,
+                                model.nodes.count { it.status == status },
+                            )
+                        }
+                }
             }
             set<ObjectNode>("outputSha256", JsonOutput.mapper.valueToTree(outputHashes))
         }
@@ -310,6 +420,23 @@ class AiddCli(
         VerificationStatus.UNSUPPORTED,
         -> 4
         VerificationStatus.HUMAN_REVIEW_REQUIRED -> 5
+    }
+
+    private fun explorationExitCode(verification: VerificationResult): Int = when (verification.status) {
+        VerificationStatus.TIMEOUT,
+        VerificationStatus.UNSUPPORTED,
+        -> 4
+        VerificationStatus.HUMAN_REVIEW_REQUIRED -> 5
+        else -> when (verification.boundedOutcome) {
+            VerificationStatus.COUNTEREXAMPLE,
+            VerificationStatus.NO_INSTANCE_WITHIN_SCOPE,
+            -> 2
+            VerificationStatus.TIMEOUT,
+            VerificationStatus.UNSUPPORTED,
+            -> 4
+            VerificationStatus.HUMAN_REVIEW_REQUIRED -> 5
+            else -> 3
+        }
     }
 
     private fun usage(message: String): Nothing = throw CliException(message, 2)

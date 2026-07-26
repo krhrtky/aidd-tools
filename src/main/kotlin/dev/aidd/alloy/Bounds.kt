@@ -11,11 +11,13 @@ data class Bounds(
     val approved: Boolean,
     val approvedBy: String? = null,
     val decisionId: String? = null,
+    val maxListLength: Int = 3,
 ) {
     init {
         require(globalScope > 0) { "globalScope must be positive" }
         require(intBitwidth in 1..32) { "intBitwidth must be between 1 and 32" }
         require(maxTraceSteps > 0) { "maxTraceSteps must be positive" }
+        require(maxListLength > 0) { "maxListLength must be positive" }
         require(!approved || !approvedBy.isNullOrBlank()) { "approved bounds require approvedBy" }
         require(!approved || decisionId?.startsWith("urn:aidd:") == true) {
             "approved bounds require an urn:aidd decisionId"
@@ -34,6 +36,7 @@ data class Bounds(
                 approved = root.path("approved").asBoolean(false),
                 approvedBy = root.path("approvedBy").takeIf { it.isTextual }?.asText(),
                 decisionId = root.path("decisionId").takeIf { it.isTextual }?.asText(),
+                maxListLength = root.path("maxListLength").takeIf { it.isInt }?.asInt() ?: 3,
             )
         }
     }

@@ -1,6 +1,7 @@
 package dev.aidd.render
 
 import dev.aidd.model.ModelParser
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -29,5 +30,16 @@ class SpecRendererTest {
         assertFalse(accepted.contains("Candidate rule"))
         assertTrue(candidate.contains("Candidate rule"))
     }
-}
 
+    @Test
+    fun `candidate renderer includes contract types totality and value references`() {
+        val candidate = SpecRenderer().renderCandidates(
+            ModelParser().parse(Path.of("examples/pure-function/model.jsonld")),
+        )
+
+        assertTrue(candidate.contains("Value type: `Int`"))
+        assertTrue(candidate.contains("Total: `true`"))
+        assertTrue(candidate.contains("sub("))
+        assertTrue(candidate.contains("urn:aidd:withdraw:parameter:balance"))
+    }
+}

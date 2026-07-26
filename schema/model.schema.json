@@ -7,7 +7,7 @@
   "required": ["@context", "schemaVersion", "specId", "@graph"],
   "properties": {
     "@context": { "const": "https://aidd.dev/context/v1" },
-    "schemaVersion": { "const": "1.0" },
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
     "specId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
@@ -30,7 +30,7 @@
             "Operation", "Constraint", "Invariant", "Precondition",
             "Postcondition", "Error", "Assumption", "Example",
             "Counterexample", "CodeSymbol", "TestCase", "Contract",
-            "Evidence", "HumanDecision"
+            "Evidence", "HumanDecision", "Parameter", "Result"
           ]
         },
         "label": { "type": "string" },
@@ -42,6 +42,14 @@
           "items": { "$ref": "#/$defs/evidence" }
         },
         "expression": { "$ref": "#/$defs/expression" },
+        "valueType": { "$ref": "#/$defs/valueType" },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "total": { "type": "boolean" },
         "defines": { "$ref": "#/$defs/references" },
         "constrains": { "$ref": "#/$defs/references" },
         "derivesFrom": { "$ref": "#/$defs/references" },
@@ -52,8 +60,58 @@
         "testedBy": { "$ref": "#/$defs/references" },
         "evidencedBy": { "$ref": "#/$defs/references" },
         "contradicts": { "$ref": "#/$defs/references" },
-        "supersedes": { "$ref": "#/$defs/references" }
+        "supersedes": { "$ref": "#/$defs/references" },
+        "accepts": { "$ref": "#/$defs/references" },
+        "returns": { "$ref": "#/$defs/references" },
+        "mayFailWith": { "$ref": "#/$defs/references" }
       }
+    },
+    "valueType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["int", "bool", "string"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "typeId"],
+          "properties": {
+            "kind": { "const": "enum" },
+            "typeId": { "type": "string", "pattern": "^urn:aidd:" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "elementType"],
+          "properties": {
+            "kind": { "enum": ["set", "list"] },
+            "elementType": { "$ref": "#/$defs/scalarValueType" }
+          }
+        }
+      ]
+    },
+    "scalarValueType": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["int", "bool", "string"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "typeId"],
+          "properties": {
+            "kind": { "const": "enum" },
+            "typeId": { "type": "string", "pattern": "^urn:aidd:" }
+          }
+        }
+      ]
     },
     "references": {
       "type": "array",
@@ -93,12 +151,18 @@
           "enum": [
             "literal", "ref", "variable", "current", "not", "and", "or", "implies", "eq", "neq",
             "lt", "lte", "gt", "gte", "in", "all", "some", "no", "one",
-            "always", "eventually", "next", "until"
+            "always", "eventually", "next", "until",
+            "valueRef", "enumLiteral", "setLiteral", "listLiteral",
+            "add", "sub", "mul", "size", "contains", "index",
+            "union", "intersect", "difference", "append", "concat", "slice"
           ]
         },
         "id": { "type": "string" },
         "name": { "type": "string" },
         "value": {},
+        "typeId": { "type": "string" },
+        "member": { "type": "string" },
+        "valueType": { "$ref": "#/$defs/scalarValueType" },
         "variable": { "type": "string" },
         "domain": { "$ref": "#/$defs/expression" },
         "body": { "$ref": "#/$defs/expression" },

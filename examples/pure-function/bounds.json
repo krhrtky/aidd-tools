@@ -1,0 +1,7 @@
+{
+  "globalScope": 3,
+  "intBitwidth": 4,
+  "maxTraceSteps": 10,
+  "maxListLength": 3,
+  "approved": false
+}

@@ -68,13 +68,20 @@ docs/requirements.md から .aidd/specs/order/model.jsonld を作成してくだ
 意味解釈はcandidateのままにしてください。
 ```
 
-候補モデルをHarnessで検証する。
+純粋関数の契約では、関数名、順序付き引数と型、結果型、成功条件、事後条件、エラー条件、全域／部分関数を原文へ明記する。意味が不足または曖昧なら、Skillはモデルを書き出す前に質問する。
 
 ```sh
-aidd-formalize run \
-  --model .aidd/specs/order/model.jsonld \
-  --out .aidd/specs/order
+aidd-formalize validate \
+  --model .aidd/specs/withdraw/model.jsonld
+
+aidd-formalize explore \
+  --model .aidd/specs/withdraw/model.jsonld \
+  --out .aidd/specs/withdraw
 ```
+
+`explore`はacceptedを前提、candidateを探索対象にして、rejectedを除外する。candidateを含むため、有限境界内で問題が見つからなくてもトップレベル結果は常に`PROVISIONAL`である。実際の有限検査結果は`verification.json`の`boundedOutcome`で確認する。
+
+実行可能な純粋関数candidateの例は[requirements](../examples/pure-function/requirements.md)と[model.jsonld](../examples/pure-function/model.jsonld)を参照する。初版は`Int`、`Bool`、制限付き`String`、Enum、非ネストのSet/List、整数加減乗算、基本Collection演算を対象とする。正規表現、文字列連結・長さ、除算・剰余、Collectionネスト、高階操作、外部I/O、可変ヒープは対象外である。
 
 TypeScript実装をバックポートする場合:
 
@@ -103,3 +110,5 @@ model.jsonld と candidate-prose.md を作成してください。
 ```
 
 既定の探索境界は未承認なので、検証結果が正常でも`PROVISIONAL`、終了コード`3`になる。受理可能なbounded resultにするには、レビュー済みの`bounds.json`を明示する。
+
+candidate探索は境界承認の有無にかかわらず`PROVISIONAL`である。境界承認によってaccepted仕様を検証する場合は`check`または`run`を使用する。

@@ -28,6 +28,7 @@ pnpm --dir extractors/typescript build
 
 ```sh
 bin/aidd-formalize validate --model model.jsonld
+bin/aidd-formalize explore --model model.jsonld --out .aidd/specs/example
 bin/aidd-formalize check --model model.jsonld --out .aidd/specs/example
 bin/aidd-formalize render --model model.jsonld --out spec.md
 
@@ -42,6 +43,7 @@ bin/aidd-backport diff --model observed.jsonld --against intended.jsonld --out d
 Alloyの結果は指定された有限スコープ内の結果であり、無条件の完全証明ではありません。
 `Constraint`はモデル充足可能性を確認する`fact/run`、`Invariant`は反例を探索する`assert/check`へ変換されます。
 明示的な`Invariant`がない場合、SATであっても「反例なし」とは表示せず`PROVISIONAL`になります。
+`explore`はacceptedを前提、candidateを探索対象にし、rejectedを除外します。未承認の意味を含むため結果は常に`PROVISIONAL`で、有限検査の結果は`boundedOutcome`へ記録されます。
 
 ## v1 の境界
 
@@ -51,3 +53,5 @@ Alloyの結果は指定された有限スコープ内の結果であり、無条
 - TypeScript抽出器はCompiler API 6.0.3を使用し、構文・型エラーがあれば成果物を残して終了コード`4`を返します。
 - 対象コード、テスト、Gradle、package scriptは実行しません。
 - `candidate-prose.md`はAgent Skillが生成する候補であり、決定的な`as-built.md`とは混在させません。
+- schema 1.1の純粋関数candidate契約は、`Int`、`Bool`、制限付き`String`、Enum、非ネストのSet/List、整数加減乗算、基本Collection演算を対象とします。正規表現、文字列連結・長さ、除算・剰余、Collectionネスト、高階操作、外部I/O、可変ヒープは`UNSUPPORTED`です。
+- LLMが自然言語から生成した意味claimはすべて`candidate`かつ`generatedBy: llm`です。Skillは不足・曖昧な契約意味を補完せず、モデルを書き出す前に人間へ質問します。

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode
 import dev.aidd.model.AiddModel
 import dev.aidd.model.ClaimStatus
 import dev.aidd.model.ModelNode
+import dev.aidd.model.ValueKind
+import dev.aidd.model.ValueType
 
 class SpecRenderer {
     fun renderAccepted(model: AiddModel): String =
@@ -34,6 +36,15 @@ class SpecRenderer {
                 appendLine()
                 appendLine("- **${node.label}** (`${node.id}`)")
                 appendLine("  - Basis: `${node.basis.wireValue}`")
+                node.valueType?.let {
+                    appendLine("  - Value type: `${renderValueType(it)}`")
+                }
+                if (node.members.isNotEmpty()) {
+                    appendLine("  - Members: ${node.members.sorted().joinToString { "`$it`" }}")
+                }
+                node.total?.let {
+                    appendLine("  - Total: `$it`")
+                }
                 node.expression?.let {
                     appendLine("  - Constraint: `${renderExpression(it)}`")
                 }
@@ -54,9 +65,24 @@ class SpecRenderer {
         val op = expression.path("op").asText()
         return when (op) {
             "literal" -> expression.get("value").asText()
-            "ref" -> expression.path("id").asText()
+            "ref", "valueRef" -> expression.path("id").asText()
+            "enumLiteral" -> "${expression.path("typeId").asText()}.${expression.path("member").asText()}"
+            "all" -> {
+                val variable = expression.path("variable").asText()
+                val domain = renderExpression(expression.path("domain"))
+                val body = renderExpression(expression.path("body"))
+                "all($variable in $domain, $body)"
+            }
             else -> "$op(${expression.path("args").joinToString { renderExpression(it) }})"
         }
     }
-}
 
+    private fun renderValueType(valueType: ValueType): String = when (valueType.kind) {
+        ValueKind.INT -> "Int"
+        ValueKind.BOOL -> "Bool"
+        ValueKind.STRING -> "String"
+        ValueKind.ENUM -> "Enum<${valueType.typeId}>"
+        ValueKind.SET -> "Set<${renderValueType(valueType.elementType!!)}>"
+        ValueKind.LIST -> "List<${renderValueType(valueType.elementType!!)}>"
+    }
+}

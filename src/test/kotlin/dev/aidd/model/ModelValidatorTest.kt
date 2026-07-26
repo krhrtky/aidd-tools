@@ -161,4 +161,283 @@ class ModelValidatorTest {
             ModelValidator().validate(model).diagnostics.any { it.code == "EXPRESSION_TYPE_MISMATCH" },
         )
     }
+
+    @Test
+    fun `version 1_1 contract model provides typed parameters result and deterministic relations`() {
+        val model = ModelParser().parse(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.1",
+              "specId":"withdraw",
+              "@graph":[
+                {
+                  "@id":"urn:aidd:withdraw:requirement:source","@type":"Requirement",
+                  "status":"candidate","basis":"stated","label":"withdraw requirement",
+                  "evidence":[{
+                    "path":"requirements.md","startLine":1,"startColumn":1,"endLine":1,"endColumn":1,
+                    "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:type:mode","@type":"Type",
+                  "status":"candidate","basis":"derived","members":["NORMAL","FORCED"],
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:param:balance","@type":"Parameter",
+                  "status":"candidate","basis":"derived","valueType":{"kind":"int"},
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:param:amount","@type":"Parameter",
+                  "status":"candidate","basis":"derived","valueType":{"kind":"int"},
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:param:mode","@type":"Parameter",
+                  "status":"candidate","basis":"derived",
+                  "valueType":{"kind":"enum","typeId":"urn:aidd:withdraw:type:mode"},
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:result:new-balance","@type":"Result",
+                  "status":"candidate","basis":"derived","valueType":{"kind":"int"},
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:pre:positive","@type":"Precondition",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"],
+                  "expression":{"op":"gt","args":[
+                    {"op":"valueRef","id":"urn:aidd:withdraw:param:amount"},
+                    {"op":"literal","value":0}
+                  ]}
+                },
+                {
+                  "@id":"urn:aidd:withdraw:post:subtract","@type":"Postcondition",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"],
+                  "expression":{"op":"and","args":[
+                    {"op":"eq","args":[
+                      {"op":"valueRef","id":"urn:aidd:withdraw:result:new-balance"},
+                      {"op":"sub","args":[
+                        {"op":"valueRef","id":"urn:aidd:withdraw:param:balance"},
+                        {"op":"valueRef","id":"urn:aidd:withdraw:param:amount"}
+                      ]}
+                    ]},
+                    {"op":"eq","args":[
+                      {"op":"valueRef","id":"urn:aidd:withdraw:param:mode"},
+                      {"op":"enumLiteral","typeId":"urn:aidd:withdraw:type:mode","member":"NORMAL"}
+                    ]}
+                  ]}
+                },
+                {
+                  "@id":"urn:aidd:withdraw:error:insufficient","@type":"Error",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"],
+                  "expression":{"op":"gt","args":[
+                    {"op":"valueRef","id":"urn:aidd:withdraw:param:amount"},
+                    {"op":"valueRef","id":"urn:aidd:withdraw:param:balance"}
+                  ]}
+                },
+                {
+                  "@id":"urn:aidd:withdraw:operation:withdraw","@type":"Operation",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"],
+                  "accepts":[
+                    "urn:aidd:withdraw:param:balance",
+                    "urn:aidd:withdraw:param:amount",
+                    "urn:aidd:withdraw:param:mode"
+                  ],
+                  "returns":["urn:aidd:withdraw:result:new-balance"],
+                  "mayFailWith":["urn:aidd:withdraw:error:insufficient"]
+                },
+                {
+                  "@id":"urn:aidd:withdraw:contract:withdraw","@type":"Contract",
+                  "status":"candidate","basis":"derived","total":false,
+                  "derivesFrom":["urn:aidd:withdraw:requirement:source"],
+                  "defines":["urn:aidd:withdraw:operation:withdraw"],
+                  "constrains":[
+                    "urn:aidd:withdraw:pre:positive",
+                    "urn:aidd:withdraw:post:subtract",
+                    "urn:aidd:withdraw:error:insufficient"
+                  ]
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val result = ModelValidator().validate(model)
+
+        assertTrue(result.diagnostics.isEmpty(), result.diagnostics.joinToString())
+        val operation = result.model!!.nodes.single { it.type == "Operation" }
+        assertEquals(
+            listOf(
+                "urn:aidd:withdraw:param:balance",
+                "urn:aidd:withdraw:param:amount",
+                "urn:aidd:withdraw:param:mode",
+            ),
+            operation.relations.getValue("accepts"),
+        )
+        assertEquals(ValueKind.ENUM, result.model.nodes.single { it.id.endsWith("param:mode") }.valueType?.kind)
+        assertEquals(false, result.model.nodes.single { it.type == "Contract" }.total)
+    }
+
+    @Test
+    fun `version 1_1 rejects nested collections and invalid contract graph`() {
+        val model = ModelParser().parse(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.1",
+              "specId":"invalid-contract",
+              "@graph":[
+                {
+                  "@id":"urn:aidd:invalid:requirement:source","@type":"Requirement",
+                  "status":"candidate","basis":"stated",
+                  "evidence":[{
+                    "path":"requirements.md","startLine":1,"startColumn":1,"endLine":1,"endColumn":1,
+                    "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }]
+                },
+                {
+                  "@id":"urn:aidd:invalid:param:nested","@type":"Parameter",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:invalid:requirement:source"],
+                  "valueType":{"kind":"list","elementType":{"kind":"set","elementType":{"kind":"int"}}}
+                },
+                {
+                  "@id":"urn:aidd:invalid:result:value","@type":"Result",
+                  "status":"candidate","basis":"derived","valueType":{"kind":"int"},
+                  "derivesFrom":["urn:aidd:invalid:requirement:source"]
+                },
+                {
+                  "@id":"urn:aidd:invalid:operation:x","@type":"Operation",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:invalid:requirement:source"],
+                  "accepts":["urn:aidd:invalid:result:value"],
+                  "returns":[]
+                },
+                {
+                  "@id":"urn:aidd:invalid:contract:x","@type":"Contract",
+                  "status":"candidate","basis":"derived",
+                  "derivesFrom":["urn:aidd:invalid:requirement:source"],
+                  "defines":["urn:aidd:invalid:result:value"]
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val codes = ModelValidator().validate(model).diagnostics.map(Diagnostic::code).toSet()
+
+        assertTrue("NESTED_COLLECTION_UNSUPPORTED" in codes)
+        assertTrue("INVALID_RELATION_TARGET_TYPE" in codes)
+        assertTrue("INVALID_OPERATION_RESULT" in codes)
+        assertTrue("MISSING_CONTRACT_TOTAL" in codes)
+        assertTrue("INVALID_CONTRACT_OPERATION" in codes)
+        assertTrue("INVALID_CONTRACT_POSTCONDITION" in codes)
+    }
+
+    @Test
+    fun `collection expressions are typed and unsupported operations fail closed`() {
+        fun diagnosticsFor(expression: String): List<Diagnostic> {
+            val model = ModelParser().parse(
+                """
+                {
+                  "@context":"https://aidd.dev/context/v1",
+                  "schemaVersion":"1.1",
+                  "specId":"collections",
+                  "@graph":[
+                    {
+                      "@id":"urn:aidd:collections:requirement:source","@type":"Requirement",
+                      "status":"candidate","basis":"stated",
+                      "evidence":[{
+                        "path":"requirements.md","startLine":1,"startColumn":1,"endLine":1,"endColumn":1,
+                        "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                      }]
+                    },
+                    {
+                      "@id":"urn:aidd:collections:constraint:x","@type":"Constraint",
+                      "status":"candidate","basis":"derived",
+                      "derivesFrom":["urn:aidd:collections:requirement:source"],
+                      "expression":$expression
+                    }
+                  ]
+                }
+                """.trimIndent(),
+            )
+            return ModelValidator().validate(model).diagnostics
+        }
+        val intList = """{"op":"listLiteral","valueType":{"kind":"int"},"args":[
+            {"op":"literal","value":1},{"op":"literal","value":2}]}""".trimIndent()
+        val collectionExpression =
+            """{"op":"and","args":[
+              {"op":"eq","args":[{"op":"size","args":[$intList]},{"op":"literal","value":2}]},
+              {"op":"eq","args":[{"op":"index","args":[$intList,{"op":"literal","value":0}]},{"op":"literal","value":1}]},
+              {"op":"contains","args":[{"op":"append","args":[$intList,{"op":"literal","value":3}]},{"op":"literal","value":3}]},
+              {"op":"eq","args":[
+                {"op":"slice","args":[{"op":"concat","args":[$intList,$intList]},{"op":"literal","value":0},{"op":"literal","value":2}]},
+                $intList
+              ]},
+              {"op":"eq","args":[
+                {"op":"difference","args":[
+                  {"op":"union","args":[
+                    {"op":"setLiteral","valueType":{"kind":"int"},"args":[{"op":"literal","value":1}]},
+                    {"op":"setLiteral","valueType":{"kind":"int"},"args":[{"op":"literal","value":2}]}
+                  ]},
+                  {"op":"intersect","args":[
+                    {"op":"setLiteral","valueType":{"kind":"int"},"args":[{"op":"literal","value":2}]},
+                    {"op":"setLiteral","valueType":{"kind":"int"},"args":[{"op":"literal","value":2}]}
+                  ]}
+                ]},
+                {"op":"setLiteral","valueType":{"kind":"int"},"args":[{"op":"literal","value":1}]}
+              ]},
+              {"op":"eq","args":[
+                {"op":"add","args":[{"op":"literal","value":1},{"op":"mul","args":[{"op":"literal","value":2},{"op":"literal","value":3}]}]},
+                {"op":"literal","value":7}
+              ]}
+            ]}""".trimIndent()
+
+        assertTrue(diagnosticsFor(collectionExpression).isEmpty())
+        assertTrue(diagnosticsFor("""{"op":"regex","args":[]}""").any { it.code == "UNSUPPORTED_EXPRESSION" })
+        assertTrue(diagnosticsFor("""{"op":"div","args":[{"op":"literal","value":1},{"op":"literal","value":1}]}""")
+            .any { it.code == "UNSUPPORTED_EXPRESSION" })
+        assertTrue(diagnosticsFor("""{"op":"map","args":[]}""").any { it.code == "UNSUPPORTED_EXPRESSION" })
+        assertTrue(
+            diagnosticsFor(
+                """{"op":"eq","args":[
+                  {"op":"index","args":[$intList,{"op":"literal","value":2}]},
+                  {"op":"literal","value":1}
+                ]}""",
+            ).any { it.code == "INDEX_OUT_OF_RANGE" },
+        )
+    }
+
+    @Test
+    fun `version 1_0 remains valid but cannot silently use 1_1 contract features`() {
+        val version10 = ModelParser().parse(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.0",
+              "specId":"compatibility",
+              "@graph":[{
+                "@id":"urn:aidd:compatibility:param:x","@type":"Parameter",
+                "status":"candidate","basis":"stated","valueType":{"kind":"int"},
+                "evidence":[{
+                  "path":"requirements.md","startLine":1,"startColumn":1,"endLine":1,"endColumn":1,
+                  "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                }]
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        val diagnostics = ModelValidator().validate(version10).diagnostics
+
+        assertTrue(diagnostics.any { it.code == "FEATURE_REQUIRES_SCHEMA_1_1" })
+    }
 }

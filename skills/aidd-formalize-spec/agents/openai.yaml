@@ -1,4 +1,4 @@
 interface:
   display_name: "AIDD Formalize Spec"
-  short_description: "Turn natural language into reviewable formal specifications"
-  default_prompt: "Use $aidd-formalize-spec to structure these requirements as a candidate formal specification and verify them."
+  short_description: "Create and explore candidate formal contracts"
+  default_prompt: "Use $aidd-formalize-spec to turn these natural-language requirements into a candidate pure-function contract, ask about missing semantics before writing it, then validate and explore it."

@@ -47,13 +47,14 @@ class AlloyRunner(
         alloy: String,
         bounds: Bounds,
         artifactDirectory: Path,
+        forceProvisional: Boolean = false,
     ): VerificationResult {
         Files.createDirectories(artifactDirectory)
         val executor = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "aidd-alloy-runner").apply { isDaemon = true }
         }
         val future = executor.submit<VerificationResult> {
-            execute(alloy, bounds, artifactDirectory)
+            execute(alloy, bounds, artifactDirectory, forceProvisional)
         }
         return try {
             future.get(timeoutSeconds, TimeUnit.SECONDS)
@@ -83,6 +84,7 @@ class AlloyRunner(
         alloy: String,
         bounds: Bounds,
         artifactDirectory: Path,
+        forceProvisional: Boolean,
     ): VerificationResult {
         val reporter = A4Reporter.NOP
         val module = CompUtil.parseEverything_fromString(reporter, alloy)
@@ -129,8 +131,19 @@ class AlloyRunner(
         } else {
             listOf("SATISFIABILITY_ONLY: no Alloy assertion was checked")
         }
+        val reportedBoundedOutcome = if (
+            forceProvisional ||
+            hasVerificationClaim ||
+            boundedOutcome == VerificationStatus.NO_INSTANCE_WITHIN_SCOPE
+        ) {
+            boundedOutcome
+        } else {
+            null
+        }
         return VerificationResult(
-            status = if (
+            status = if (forceProvisional) {
+                VerificationStatus.PROVISIONAL
+            } else if (
                 bounds.approved &&
                 (hasVerificationClaim || boundedOutcome == VerificationStatus.NO_INSTANCE_WITHIN_SCOPE)
             ) {
@@ -138,11 +151,7 @@ class AlloyRunner(
             } else {
                 VerificationStatus.PROVISIONAL
             },
-            boundedOutcome = if (hasVerificationClaim || boundedOutcome == VerificationStatus.NO_INSTANCE_WITHIN_SCOPE) {
-                boundedOutcome
-            } else {
-                null
-            },
+            boundedOutcome = reportedBoundedOutcome,
             scope = bounds,
             commands = outcomes,
             diagnostics = diagnostics,

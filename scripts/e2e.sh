@@ -26,6 +26,42 @@ bin/aidd-formalize check \
 find "$artifact_root/formal" -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$artifact_root/second.sha256"
 diff -u "$artifact_root/first.sha256" "$artifact_root/second.sha256"
 
+bin/aidd-formalize validate \
+  --model examples/pure-function/model.jsonld > "$artifact_root/candidate-validation.json"
+node -e '
+  const fs = require("fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  if (!result.valid) process.exit(1);
+' "$artifact_root/candidate-validation.json"
+
+candidate_status=0
+bin/aidd-formalize explore \
+  --model examples/pure-function/model.jsonld \
+  --bounds examples/pure-function/bounds.json \
+  --out "$artifact_root/candidate" || candidate_status=$?
+test "$candidate_status" -eq 3
+node -e '
+  const fs = require("fs");
+  const verification = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  const manifest = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (verification.status !== "PROVISIONAL") process.exit(1);
+  if (verification.boundedOutcome !== "NO_COUNTEREXAMPLE_WITHIN_SCOPE") process.exit(1);
+  if (manifest.mode !== "candidate-exploration") process.exit(1);
+  if (!manifest.targetClaimIds || manifest.targetClaimIds.length === 0) process.exit(1);
+  if (!manifest.claimStatusCounts || manifest.claimStatusCounts.candidate === 0) process.exit(1);
+' "$artifact_root/candidate/verification.json" "$artifact_root/candidate/manifest.json"
+test -s "$artifact_root/candidate/candidate-spec.md"
+
+find "$artifact_root/candidate" -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$artifact_root/candidate-first.sha256"
+candidate_status=0
+bin/aidd-formalize explore \
+  --model examples/pure-function/model.jsonld \
+  --bounds examples/pure-function/bounds.json \
+  --out "$artifact_root/candidate" || candidate_status=$?
+test "$candidate_status" -eq 3
+find "$artifact_root/candidate" -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$artifact_root/candidate-second.sha256"
+diff -u "$artifact_root/candidate-first.sha256" "$artifact_root/candidate-second.sha256"
+
 bin/aidd-backport extract \
   --repo examples/typescript \
   --language typescript \
