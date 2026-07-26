@@ -2,6 +2,8 @@
 
 自然言語と既存コードを、監査可能なJSON-LD形式仕様とAlloy有限検査へ接続するAIDD Harnessです。
 
+開発時の情報配置とコミット前検証は[CONTRIBUTING.md](CONTRIBUTING.md)に従います。
+
 ## Build
 
 ```sh

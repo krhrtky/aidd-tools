@@ -5,9 +5,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
-
-
 def validate_skill(skill_path: Path) -> tuple[bool, str]:
     skill_md = skill_path / "SKILL.md"
     if not skill_md.exists():
@@ -16,12 +13,15 @@ def validate_skill(skill_path: Path) -> tuple[bool, str]:
     match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
     if not match:
         return False, "Invalid YAML frontmatter format"
-    try:
-        frontmatter = yaml.safe_load(match.group(1))
-    except yaml.YAMLError as error:
-        return False, f"Invalid YAML: {error}"
-    if not isinstance(frontmatter, dict):
-        return False, "Frontmatter must be a mapping"
+    frontmatter: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" not in line:
+            return False, f"Invalid frontmatter line: {line}"
+        key, value = line.split(":", 1)
+        key = key.strip()
+        if key in frontmatter:
+            return False, f"Duplicate frontmatter key: {key}"
+        frontmatter[key] = value.strip()
     if set(frontmatter) != {"name", "description"}:
         return False, "Frontmatter must contain only name and description"
     name = frontmatter["name"]
@@ -44,4 +44,3 @@ if __name__ == "__main__":
     valid, message = validate_skill(Path(sys.argv[1]))
     print(message)
     raise SystemExit(0 if valid else 1)
-

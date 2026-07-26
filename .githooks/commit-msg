@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+hooks_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$hooks_dir/../scripts/validate-commit-message.py" "$1"
+
