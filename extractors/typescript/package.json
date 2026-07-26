@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "typescript": "6.0.3",
-    "yaml": "2.8.1"
+    "yaml": "2.8.3"
   },
   "devDependencies": {
     "@types/node": "24.1.0",
