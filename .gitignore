@@ -1,0 +1,8 @@
+.gradle/
+build/
+**/build/
+**/node_modules/
+**/dist/
+.DS_Store
+.aidd/
+

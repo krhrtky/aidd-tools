@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidd.dev/schema/model/v1",
+  "title": "AIDD Canonical Semantic Model",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["@context", "schemaVersion", "specId", "@graph"],
+  "properties": {
+    "@context": { "const": "https://aidd.dev/context/v1" },
+    "schemaVersion": { "const": "1.0" },
+    "specId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "@graph": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["@id", "@type", "status", "basis"],
+      "additionalProperties": false,
+      "properties": {
+        "@id": { "type": "string", "pattern": "^urn:aidd:" },
+        "@type": {
+          "enum": [
+            "Requirement", "Term", "Entity", "Type", "State", "Transition",
+            "Operation", "Constraint", "Invariant", "Precondition",
+            "Postcondition", "Error", "Assumption", "Example",
+            "Counterexample", "CodeSymbol", "TestCase", "Contract",
+            "Evidence", "HumanDecision"
+          ]
+        },
+        "label": { "type": "string" },
+        "status": { "enum": ["candidate", "accepted", "rejected"] },
+        "basis": { "enum": ["stated", "observed", "derived", "assumed"] },
+        "generatedBy": { "enum": ["llm", "human", "harness", "extractor"] },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "expression": { "$ref": "#/$defs/expression" },
+        "defines": { "$ref": "#/$defs/references" },
+        "constrains": { "$ref": "#/$defs/references" },
+        "derivesFrom": { "$ref": "#/$defs/references" },
+        "dependsOn": { "$ref": "#/$defs/references" },
+        "transitionsFrom": { "$ref": "#/$defs/references" },
+        "transitionsTo": { "$ref": "#/$defs/references" },
+        "implementedBy": { "$ref": "#/$defs/references" },
+        "testedBy": { "$ref": "#/$defs/references" },
+        "evidencedBy": { "$ref": "#/$defs/references" },
+        "contradicts": { "$ref": "#/$defs/references" },
+        "supersedes": { "$ref": "#/$defs/references" }
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["@id"],
+            "properties": { "@id": { "type": "string" } },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "startLine", "startColumn", "endLine", "endColumn", "sha256"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "startColumn": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "expression": {
+      "type": "object",
+      "required": ["op"],
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "literal", "ref", "variable", "current", "not", "and", "or", "implies", "eq", "neq",
+            "lt", "lte", "gt", "gte", "in", "all", "some", "no", "one",
+            "always", "eventually", "next", "until"
+          ]
+        },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "value": {},
+        "variable": { "type": "string" },
+        "domain": { "$ref": "#/$defs/expression" },
+        "body": { "$ref": "#/$defs/expression" },
+        "args": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/expression" }
+        }
+      }
+    }
+  }
+}

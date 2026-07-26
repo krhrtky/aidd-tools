@@ -1,0 +1,8 @@
+{
+  "globalScope": 3,
+  "intBitwidth": 4,
+  "maxTraceSteps": 10,
+  "approved": true,
+  "approvedBy": "example-reviewer",
+  "decisionId": "urn:aidd:order:decision:bounds-v1"
+}

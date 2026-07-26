@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidd.dev/schema/code-facts/v1",
+  "title": "AIDD deterministic code facts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "language", "extractor", "repositorySha256", "facts", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "language": { "enum": ["kotlin", "typescript"] },
+    "extractor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "enum": ["kotlin-compiler-psi", "typescript-compiler-api"] },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "repositorySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id", "kind", "name", "qualifiedName", "status", "basis", "source", "details"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "name": { "type": "string" },
+          "qualifiedName": { "type": "string" },
+          "status": { "const": "accepted" },
+          "basis": { "const": "observed" },
+          "source": { "$ref": "#/$defs/source" },
+          "details": { "type": "object" }
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "enum": ["warning", "error", "UNSUPPORTED"] },
+          "message": { "type": "string" },
+          "source": { "$ref": "#/$defs/source" },
+          "details": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "startLine", "startColumn", "endLine", "endColumn", "sha256"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "startColumn": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

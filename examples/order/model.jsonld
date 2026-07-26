@@ -1,0 +1,104 @@
+{
+  "@context": "https://aidd.dev/context/v1",
+  "schemaVersion": "1.0",
+  "specId": "order",
+  "@graph": [
+    {
+      "@id": "urn:aidd:order:requirement:confirmed-cannot-return-draft",
+      "@type": "Requirement",
+      "label": "確定済み注文は下書きへ戻らない",
+      "status": "accepted",
+      "basis": "stated",
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 5,
+          "startColumn": 1,
+          "endLine": 5,
+          "endColumn": 20,
+          "sha256": "25ec89691331b0f2bf8658c3531af6e0dc1ad9a1f0c74ceee77c221716a1d668"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:order:state:confirmed",
+      "@type": "State",
+      "label": "Confirmed",
+      "status": "accepted",
+      "basis": "stated",
+      "derivesFrom": [
+        "urn:aidd:order:requirement:confirmed-cannot-return-draft"
+      ]
+    },
+    {
+      "@id": "urn:aidd:order:state:draft",
+      "@type": "State",
+      "label": "Draft",
+      "status": "accepted",
+      "basis": "stated",
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 3,
+          "startColumn": 1,
+          "endLine": 3,
+          "endColumn": 24,
+          "sha256": "25ec89691331b0f2bf8658c3531af6e0dc1ad9a1f0c74ceee77c221716a1d668"
+        }
+      ]
+    },
+    {
+      "@id": "urn:aidd:order:transition:confirm",
+      "@type": "Transition",
+      "label": "confirm",
+      "status": "accepted",
+      "basis": "stated",
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 4,
+          "startColumn": 1,
+          "endLine": 4,
+          "endColumn": 16,
+          "sha256": "25ec89691331b0f2bf8658c3531af6e0dc1ad9a1f0c74ceee77c221716a1d668"
+        }
+      ],
+      "transitionsFrom": [
+        "urn:aidd:order:state:draft"
+      ],
+      "transitionsTo": [
+        "urn:aidd:order:state:confirmed"
+      ]
+    },
+    {
+      "@id": "urn:aidd:order:invariant:states-distinct",
+      "@type": "Invariant",
+      "label": "注文状態は区別される",
+      "status": "accepted",
+      "basis": "stated",
+      "evidence": [
+        {
+          "path": "requirements.md",
+          "startLine": 6,
+          "startColumn": 1,
+          "endLine": 6,
+          "endColumn": 18,
+          "sha256": "25ec89691331b0f2bf8658c3531af6e0dc1ad9a1f0c74ceee77c221716a1d668"
+        }
+      ],
+      "expression": {
+        "op": "neq",
+        "args": [
+          {
+            "op": "ref",
+            "id": "urn:aidd:order:state:draft"
+          },
+          {
+            "op": "ref",
+            "id": "urn:aidd:order:state:confirmed"
+          }
+        ]
+      }
+    }
+  ]
+}
