@@ -41,3 +41,15 @@ bin/aidd-backport extract \
 
 test -s "$artifact_root/typescript/as-built.md"
 test -s "$artifact_root/kotlin/code-facts.json"
+
+./install.sh \
+  --skip-build \
+  --no-skills \
+  --prefix "$artifact_root/install"
+"$artifact_root/install/bin/aidd-formalize" validate \
+  --model examples/order/model.jsonld > "$artifact_root/installed-validation.json"
+node -e '
+  const fs = require("fs");
+  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+  if (!result.valid) process.exit(1);
+' "$artifact_root/installed-validation.json"

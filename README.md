@@ -4,7 +4,17 @@
 
 開発時の情報配置とコミット前検証は[CONTRIBUTING.md](CONTRIBUTING.md)に従います。
 
-## Build
+## Quick install
+
+macOSまたはLinuxで、JDK 21、Node.js 20とCorepackを用意して実行します。pnpm 10.13.1はCorepackが選択します。
+
+```sh
+./install.sh
+```
+
+これにより、`~/.local/bin`へ2つのCLI、`~/.codex/skills`へ2つのAgent Skillが登録されます。既存のユーザーファイルは上書きしません。詳しい利用手順は[Getting started](docs/getting-started.md)を参照してください。
+
+## Development build
 
 ```sh
 ./gradlew test installDist
