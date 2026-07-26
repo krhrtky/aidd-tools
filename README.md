@@ -34,6 +34,7 @@ Alloyの結果は指定された有限スコープ内の結果であり、無条
 ## v1 の境界
 
 - Kotlin抽出器はKotlin 2.3.21 compiler PSIを使う構文抽出です。K2 Analysis APIによるclasspath付き意味解決は未実装で、推論型が必要な公開宣言は`UNSUPPORTED / SEMANTIC_CLASSPATH_REQUIRED`となります。
+- OpenAPI/JSON Schema契約の取り込みはv1ではTypeScript抽出経路に限定され、Kotlinと`--contracts`の組み合わせは黙って無視せず終了コード`4`を返します。
 - `--allow-build-tool`は許可を記録しますが、v1は対象Gradleを実行しません。
 - TypeScript抽出器はCompiler API 6.0.3を使用し、構文・型エラーがあれば成果物を残して終了コード`4`を返します。
 - 対象コード、テスト、Gradle、package scriptは実行しません。

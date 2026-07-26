@@ -192,6 +192,12 @@ class AiddCli(
 
     private fun runExtractor(args: Arguments): Int {
         val language = args.required("--language")
+        if (language == "kotlin" && args.values("--contracts").isNotEmpty()) {
+            throw CliException(
+                "Kotlin contract ingestion is not implemented in v1; contracts were not ignored",
+                4,
+            )
+        }
         val repo = args.requiredPath("--repo").toAbsolutePath().normalize()
         val out = args.requiredPath("--out").toAbsolutePath().normalize()
         val outputFile = if (out.fileName.toString().endsWith(".json")) {

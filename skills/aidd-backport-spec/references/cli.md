@@ -17,6 +17,8 @@ run --repo <path> --language <kotlin|typescript> --out <directory> [--model <jso
 
 The v1 Kotlin extractor uses compiler PSI for direct syntax facts. It does not provide classpath-backed K2 Analysis API resolution or evaluate the target Gradle build; inferred public types are reported as `UNSUPPORTED / SEMANTIC_CLASSPATH_REQUIRED`. `--allow-build-tool` records permission but does not execute Gradle. The TypeScript extractor uses its built `dist` entrypoint.
 
+OpenAPI and JSON Schema ingestion is available through the TypeScript extraction path in v1. Combining `--language kotlin` with `--contracts` returns unsupported instead of silently dropping the contracts.
+
 Expected output directory:
 
 ```text
