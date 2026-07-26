@@ -1,0 +1,69 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "aidd": "https://aidd.dev/vocab/",
+    "label": "http://www.w3.org/2000/01/rdf-schema#label",
+    "status": "aidd:status",
+    "basis": "aidd:basis",
+    "evidence": {
+      "@id": "aidd:evidence",
+      "@container": "@set"
+    },
+    "defines": {
+      "@id": "aidd:defines",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "constrains": {
+      "@id": "aidd:constrains",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "derivesFrom": {
+      "@id": "aidd:derivesFrom",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "dependsOn": {
+      "@id": "aidd:dependsOn",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "transitionsFrom": {
+      "@id": "aidd:transitionsFrom",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "transitionsTo": {
+      "@id": "aidd:transitionsTo",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "implementedBy": {
+      "@id": "aidd:implementedBy",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "testedBy": {
+      "@id": "aidd:testedBy",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "evidencedBy": {
+      "@id": "aidd:evidencedBy",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "contradicts": {
+      "@id": "aidd:contradicts",
+      "@type": "@id",
+      "@container": "@set"
+    },
+    "supersedes": {
+      "@id": "aidd:supersedes",
+      "@type": "@id",
+      "@container": "@set"
+    }
+  }
+}
+

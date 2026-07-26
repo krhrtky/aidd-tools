@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+tools_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+launcher="$tools_root/build/install/aidd-tools/bin/aidd-tools"
+
+if [ ! -x "$launcher" ]; then
+  echo "aidd-tools distribution is not built. Run: $tools_root/gradlew installDist" >&2
+  exit 4
+fi
+
+exec "$launcher" formalize "$@"
+
