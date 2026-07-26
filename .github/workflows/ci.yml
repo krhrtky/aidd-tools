@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "10.13.1"
+      - run: ./gradlew test installDist
+      - run: ./gradlew -p extractors/kotlin test installDist --no-daemon
+      - run: pnpm --dir extractors/typescript install --frozen-lockfile
+      - run: pnpm --dir extractors/typescript test
+      - run: pnpm --dir extractors/typescript build
+      - run: scripts/e2e.sh
+      - run: python3 -m pip install pyyaml
+      - run: python3 scripts/quick_validate_skill.py skills/aidd-formalize-spec
+      - run: python3 scripts/quick_validate_skill.py skills/aidd-backport-spec

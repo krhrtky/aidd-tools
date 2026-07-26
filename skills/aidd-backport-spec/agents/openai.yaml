@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIDD Backport Spec"
+  short_description: "Recover reviewable specifications from existing code"
+  default_prompt: "Use $aidd-backport-spec to extract an evidence-backed candidate specification from this codebase."
