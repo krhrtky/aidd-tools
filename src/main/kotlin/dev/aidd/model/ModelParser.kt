@@ -28,7 +28,7 @@ class ModelParser(
         node.requireOnlyFields(
             setOf(
                 "@id", "@type", "label", "status", "basis", "generatedBy", "evidence", "expression",
-                "valueType", "members", "total",
+                "valueType", "members", "total", "approvedClaimHashes", "sourceModelSha256",
             ) + Vocabulary.relations,
             "graph node",
         )
@@ -43,6 +43,17 @@ class ModelParser(
             }
         }
         node.get("total")?.let { require(it.isBoolean) { "total must be a boolean" } }
+        node.get("approvedClaimHashes")?.let { hashes ->
+            require(hashes.isObject) { "approvedClaimHashes must be an object" }
+            hashes.properties().forEach { (id, hash) ->
+                require(id.startsWith("urn:aidd:") && hash.isTextual) {
+                    "approvedClaimHashes must map urn:aidd IDs to strings"
+                }
+            }
+        }
+        node.get("sourceModelSha256")?.let {
+            require(it.isTextual) { "sourceModelSha256 must be a string" }
+        }
         val evidence = node.path("evidence").takeIf(JsonNode::isArray)?.map(::parseEvidence).orEmpty()
         val relations = Vocabulary.relations.associateWith { relation ->
             val value = node.get(relation)
@@ -68,6 +79,12 @@ class ModelParser(
             valueType = node.get("valueType")?.let(::parseValueType),
             members = node.path("members").takeIf(JsonNode::isArray)?.map(JsonNode::asText).orEmpty(),
             total = node.get("total")?.takeIf(JsonNode::isBoolean)?.asBoolean(),
+            approvedClaimHashes = node.path("approvedClaimHashes")
+                .takeIf(JsonNode::isObject)
+                ?.properties()
+                ?.associate { (id, hash) -> id to hash.asText() }
+                .orEmpty(),
+            sourceModelSha256 = node.path("sourceModelSha256").takeIf(JsonNode::isTextual)?.asText(),
         )
     }
 

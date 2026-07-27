@@ -65,7 +65,11 @@ async function main(): Promise<void> {
   await mkdir(path.dirname(outputPath), { recursive: true });
   await rejectSymlinkOutput(outputPath);
   await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
-  if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+  if (
+    result.diagnostics.some(
+      (diagnostic) => diagnostic.severity === "error" || diagnostic.severity === "unsupported",
+    )
+  ) {
     process.exitCode = 4;
   }
 }

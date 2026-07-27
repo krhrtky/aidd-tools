@@ -5,6 +5,10 @@ import path from "node:path";
 import ts from "typescript";
 import { parse as parseYaml } from "yaml";
 
+import {
+  normalizeObservedContract,
+  UnsupportedObservedContract,
+} from "./contract-normalizer.js";
 import type {
   CodeFact,
   ExtractRepositoryOptions,
@@ -67,6 +71,12 @@ interface CallableContext {
   name: string;
   qualifiedName: string;
   body: ts.Node;
+  declaration:
+    | ts.FunctionDeclaration
+    | ts.MethodDeclaration
+    | ts.ArrowFunction
+    | ts.FunctionExpression;
+  contractIds: string[];
 }
 
 function sha256(value: string | Buffer): string {
@@ -198,13 +208,15 @@ function jsDocCommentText(comment: ts.JSDocTag["comment"]): string {
 function aiddLinks(node: ts.Node): {
   requirementIds: string[];
   verifiesIds: string[];
+  contractIds: string[];
 } {
   const requirements = new Set<string>();
   const verifies = new Set<string>();
+  const contracts = new Set<string>();
   for (const tag of ts.getJSDocTags(node)) {
     const rawValue = jsDocCommentText(tag.comment);
     const dottedTag = tag.tagName.text === "aidd"
-      ? rawValue.match(/^\.(requirement|verifies)\s+(.+)$/u)
+      ? rawValue.match(/^\.(requirement|verifies|contract)\s+(.+)$/u)
       : undefined;
     const tagName = dottedTag ? `aidd.${dottedTag[1]}` : tag.tagName.text;
     const value = dottedTag?.[2]?.trim() ?? rawValue;
@@ -214,10 +226,14 @@ function aiddLinks(node: ts.Node): {
     if (tagName === "aidd.verifies" && value) {
       verifies.add(value);
     }
+    if (tagName === "aidd.contract" && value) {
+      contracts.add(value);
+    }
   }
   return {
     requirementIds: [...requirements].sort(),
     verifiesIds: [...verifies].sort(),
+    contractIds: [...contracts].sort(),
   };
 }
 
@@ -658,10 +674,13 @@ function extractSourceFile(
         ),
       );
       if (statement.body) {
+        const links = aiddLinks(statement);
         callables.push({
           name: statement.name.text,
           qualifiedName,
           body: statement.body,
+          declaration: statement,
+          contractIds: links.contractIds,
         });
       }
       continue;
@@ -696,10 +715,13 @@ function extractSourceFile(
             ),
           );
           if (member.body) {
+            const links = aiddLinks(member);
             callables.push({
               name: memberName,
               qualifiedName,
               body: member.body,
+              declaration: member,
+              contractIds: links.contractIds,
             });
           }
         }
@@ -737,6 +759,8 @@ function extractSourceFile(
             name,
             qualifiedName,
             body: callableInitializer.body,
+            declaration: callableInitializer,
+            contractIds: aiddLinks(statement).contractIds,
           });
           continue;
         }
@@ -763,6 +787,33 @@ function extractSourceFile(
 
   for (const callable of callables) {
     walkBehavior(checker, context, callable, facts, diagnostics);
+    if (callable.contractIds.length > 0) {
+      try {
+        const observed = normalizeObservedContract(
+          checker,
+          callable.declaration,
+          callable.qualifiedName,
+          callable.contractIds,
+        );
+        facts.push(
+          createFact(
+            "observedContract",
+            callable.name,
+            `${callable.qualifiedName}:observed-contract`,
+            sourceReference(context, callable.declaration),
+            observed as unknown as Record<string, unknown>,
+          ),
+        );
+      } catch (error) {
+        if (!(error instanceof UnsupportedObservedContract)) throw error;
+        diagnostics.push({
+          code: "UNSUPPORTED_OBSERVED_CONTRACT",
+          severity: "unsupported",
+          message: `${callable.qualifiedName}: ${error.message}`,
+          source: sourceReference(context, callable.declaration),
+        });
+      }
+    }
   }
   extractTestAssertions(context, facts);
   return { facts, diagnostics };

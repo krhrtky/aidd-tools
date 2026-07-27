@@ -8,10 +8,15 @@ import dev.aidd.alloy.ClaimSelection
 import dev.aidd.alloy.VerificationResult
 import dev.aidd.alloy.VerificationStatus
 import dev.aidd.backport.BackportService
+import dev.aidd.generation.TypeScriptGenerator
+import dev.aidd.generation.UnsupportedGenerationException
 import dev.aidd.model.Hashing
 import dev.aidd.model.ModelParser
 import dev.aidd.model.ModelValidator
 import dev.aidd.model.Severity
+import dev.aidd.refinement.ObservedContractParser
+import dev.aidd.refinement.RefinementCompiler
+import dev.aidd.refinement.UnsupportedRefinementException
 import dev.aidd.render.SpecRenderer
 import java.nio.file.Files
 import java.nio.file.Path
@@ -25,6 +30,10 @@ class AiddCli(
     private val runner: AlloyRunner = AlloyRunner(),
     private val renderer: SpecRenderer = SpecRenderer(),
     private val backport: BackportService = BackportService(),
+    private val acceptance: AcceptanceService = AcceptanceService(),
+    private val observedContracts: ObservedContractParser = ObservedContractParser(),
+    private val refinementCompiler: RefinementCompiler = RefinementCompiler(),
+    private val typeScriptGenerator: TypeScriptGenerator = TypeScriptGenerator(),
 ) {
     fun execute(arguments: List<String>): Int = try {
         val args = Arguments(arguments)
@@ -55,8 +64,19 @@ class AiddCli(
             outputDirectory = args.requiredPath("--out"),
             arguments = args.raw,
         )
+        "accept" -> acceptModel(
+            modelPath = args.requiredPath("--model"),
+            decisionPath = args.requiredPath("--decision"),
+            outputPath = args.requiredPath("--out"),
+        )
+        "generate" -> generateCode(
+            modelPath = args.requiredPath("--model"),
+            contractId = args.required("--contract"),
+            language = args.required("--language"),
+            outputPath = args.requiredPath("--out"),
+        )
         "render" -> renderModel(args.requiredPath("--model"), args.requiredPath("--out"))
-        else -> usage("Expected formalize validate, check, explore, render, or run")
+        else -> usage("Expected formalize validate, check, explore, accept, generate, render, or run")
     }
 
     private fun executeBackport(args: Arguments): Int = when (args.positional(1)) {
@@ -77,9 +97,18 @@ class AiddCli(
             intended = args.requiredPath("--against"),
             output = args.requiredPath("--out"),
         )
+        "refine" -> refineCode(
+            factsPath = args.requiredPath("--facts"),
+            modelPath = args.requiredPath("--model"),
+            contractId = args.required("--contract"),
+            operation = args.required("--operation"),
+            boundsPath = args.optionalPath("--bounds"),
+            outputDirectory = args.requiredPath("--out"),
+            arguments = args.raw,
+        )
         "extract" -> runExtractor(args)
         "run" -> runBackport(args)
-        else -> usage("Expected backport extract, validate, check, render, diff, or run")
+        else -> usage("Expected backport extract, validate, check, refine, render, diff, or run")
     }
 
     private fun validateModel(modelPath: Path): Int {
@@ -135,7 +164,11 @@ class AiddCli(
         JsonOutput.write(safeOutputDirectory.resolve("verification.json"), verification)
         SafePaths.writeText(safeOutputDirectory.resolve("spec.md"), renderer.renderAccepted(model))
         writeManifest(safeOutputDirectory, targetModel, bounds, verification, arguments, model)
-        return exitCode(verification.status)
+        return if (verification.status == VerificationStatus.PROVISIONAL) {
+            explorationExitCode(verification)
+        } else {
+            exitCode(verification.status)
+        }
     }
 
     private fun exploreModel(
@@ -216,6 +249,43 @@ class AiddCli(
         return if (validation.requiresHumanReview) 5 else 0
     }
 
+    private fun acceptModel(
+        modelPath: Path,
+        decisionPath: Path,
+        outputPath: Path,
+    ): Int {
+        val result = acceptance.accept(modelPath, decisionPath, outputPath)
+        val output = JsonOutput.mapper.createObjectNode().apply {
+            put("accepted", true)
+            put("model", result.modelPath.toString())
+            put("manifest", result.manifestPath.toString())
+        }
+        println(JsonOutput.mapper.writerWithDefaultPrettyPrinter().writeValueAsString(output))
+        return 0
+    }
+
+    private fun generateCode(
+        modelPath: Path,
+        contractId: String,
+        language: String,
+        outputPath: Path,
+    ): Int {
+        if (language != "typescript") {
+            throw CliException("Reference generator supports only typescript", 4)
+        }
+        val validation = validator.validate(modelPath)
+        if (!validation.isValid || validation.requiresHumanReview) {
+            return validateModel(modelPath)
+        }
+        val code = try {
+            typeScriptGenerator.generate(validation.model!!, contractId)
+        } catch (exception: UnsupportedGenerationException) {
+            throw CliException(exception.message ?: "Unsupported generation", 4)
+        }
+        SafePaths.writeText(outputPath, code)
+        return 0
+    }
+
     private fun validateBackport(facts: Path, model: Path, repository: Path? = null): Int {
         val modelCode = validateModel(model)
         if (modelCode != 0) {
@@ -244,6 +314,117 @@ class AiddCli(
             result.contradictions.isEmpty() &&
             result.evidenceMissing.isEmpty()
         ) 0 else 5
+    }
+
+    private fun refineCode(
+        factsPath: Path,
+        modelPath: Path,
+        contractId: String,
+        operation: String,
+        boundsPath: Path?,
+        outputDirectory: Path,
+        arguments: List<String>,
+    ): Int {
+        val validation = validator.validate(modelPath)
+        if (!validation.isValid || validation.requiresHumanReview) {
+            return validateModel(modelPath)
+        }
+        val factDiagnostics = backport.validateFacts(factsPath, modelPath)
+        if (factDiagnostics.isNotEmpty()) {
+            factDiagnostics.forEach(System.err::println)
+            return 2
+        }
+        val bounds = boundsPath?.let(Bounds::read) ?: Bounds.defaultExploration()
+        val output = SafePaths.directory(outputDirectory)
+        val counterexamples = output.resolve("counterexamples")
+        SafePaths.resetGeneratedDirectory(counterexamples)
+        val targetModel = output.resolve("model.jsonld")
+        val targetFacts = output.resolve("code-facts.json")
+        if (modelPath.toAbsolutePath().normalize() != targetModel.toAbsolutePath().normalize()) {
+            SafePaths.copy(modelPath, targetModel)
+        }
+        if (factsPath.toAbsolutePath().normalize() != targetFacts.toAbsolutePath().normalize()) {
+            SafePaths.copy(factsPath, targetFacts)
+        }
+        val observed = try {
+            observedContracts.parse(factsPath, operation)
+        } catch (exception: Exception) {
+            return writeUnsupportedRefinement(
+                output,
+                bounds,
+                exception.message ?: exception::class.java.simpleName,
+            )
+        }
+        val alloy = try {
+            refinementCompiler.compile(validation.model!!, observed, contractId, bounds)
+        } catch (exception: UnsupportedRefinementException) {
+            return writeUnsupportedRefinement(output, bounds, exception.message ?: "Unsupported refinement")
+        }
+        SafePaths.writeText(output.resolve("refinement.als"), alloy)
+        JsonOutput.write(output.resolve("bounds.json"), bounds)
+        val verification = runner.run(alloy, bounds, counterexamples)
+        JsonOutput.write(output.resolve("refinement.json"), verification)
+        writeRefinementManifest(
+            output = output,
+            modelPath = targetModel,
+            factsPath = targetFacts,
+            contractId = contractId,
+            operation = operation,
+            bounds = bounds,
+            verification = verification,
+            arguments = arguments,
+        )
+        return if (verification.status == VerificationStatus.PROVISIONAL) {
+            explorationExitCode(verification)
+        } else {
+            exitCode(verification.status)
+        }
+    }
+
+    private fun writeUnsupportedRefinement(
+        output: Path,
+        bounds: Bounds,
+        diagnostic: String,
+    ): Int {
+        val result = VerificationResult(
+            status = VerificationStatus.UNSUPPORTED,
+            boundedOutcome = null,
+            scope = bounds,
+            commands = emptyList(),
+            diagnostics = listOf(diagnostic),
+        )
+        SafePaths.writeText(output.resolve("refinement.als"), "// UNSUPPORTED: $diagnostic\n")
+        JsonOutput.write(output.resolve("bounds.json"), bounds)
+        JsonOutput.write(output.resolve("refinement.json"), result)
+        return 4
+    }
+
+    private fun writeRefinementManifest(
+        output: Path,
+        modelPath: Path,
+        factsPath: Path,
+        contractId: String,
+        operation: String,
+        bounds: Bounds,
+        verification: VerificationResult,
+        arguments: List<String>,
+    ) {
+        val generated = listOf("model.jsonld", "code-facts.json", "refinement.als", "bounds.json", "refinement.json")
+        val hashes = generated.associateWith { Hashing.sha256(output.resolve(it)) }
+        val manifest = JsonOutput.mapper.createObjectNode().apply {
+            put("schemaVersion", "1.0")
+            put("toolVersion", "0.1.0")
+            put("mode", "code-refinement")
+            put("inputModelSha256", Hashing.sha256(modelPath))
+            put("inputCodeFactsSha256", Hashing.sha256(factsPath))
+            put("contractId", contractId)
+            put("operation", operation)
+            set<ObjectNode>("bounds", JsonOutput.mapper.valueToTree(bounds))
+            put("status", verification.status.name)
+            putArray("arguments").also { array -> arguments.forEach(array::add) }
+            set<ObjectNode>("outputSha256", JsonOutput.mapper.valueToTree(hashes))
+        }
+        JsonOutput.writeNode(output.resolve("manifest.json"), manifest)
     }
 
     private fun runBackport(args: Arguments): Int {

@@ -20,9 +20,39 @@ export interface CodeFact {
 
 export interface ExtractionDiagnostic {
   code: string;
-  severity: "warning" | "error";
+  severity: "warning" | "error" | "unsupported";
   message: string;
   source?: SourceReference;
+}
+
+export type ObservedValueType =
+  | { kind: "int" | "bool" | "string" }
+  | { kind: "enum"; name: string; members: string[] }
+  | { kind: "set" | "list"; elementType: ObservedValueType };
+
+export type ObservedExpression =
+  | { op: "literal"; value: boolean | string }
+  | { op: "intLiteral"; value: string }
+  | { op: "valueRef"; name: string }
+  | { op: string; args: ObservedExpression[] };
+
+export type ObservedOutcome =
+  | { kind: "success"; value: ObservedExpression }
+  | { kind: "error"; error: string };
+
+export interface ObservedCase {
+  when: ObservedExpression;
+  outcome: ObservedOutcome;
+}
+
+export interface ObservedContract {
+  schemaVersion: "1.0";
+  contractIds: string[];
+  operation: string;
+  parameters: Array<{ name: string; valueType: ObservedValueType }>;
+  resultType: ObservedValueType;
+  errorTypes: string[];
+  cases: ObservedCase[];
 }
 
 export interface ExtractionResult {

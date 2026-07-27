@@ -29,11 +29,14 @@ pnpm --dir extractors/typescript build
 ```sh
 bin/aidd-formalize validate --model model.jsonld
 bin/aidd-formalize explore --model model.jsonld --out .aidd/specs/example
+bin/aidd-formalize accept --model model.jsonld --decision decision.json --out accepted.jsonld
 bin/aidd-formalize check --model model.jsonld --out .aidd/specs/example
+bin/aidd-formalize generate --model accepted.jsonld --contract urn:aidd:example:contract --language typescript --out generated.ts
 bin/aidd-formalize render --model model.jsonld --out spec.md
 
 bin/aidd-backport extract --repo . --language typescript --out .aidd/specs/code
 bin/aidd-backport validate --facts .aidd/specs/code/code-facts.json --model model.jsonld --repo .
+bin/aidd-backport refine --facts .aidd/specs/code/code-facts.json --model accepted.jsonld --contract urn:aidd:example:contract --operation src/example.ts#example --out .aidd/specs/refinement
 bin/aidd-backport render --facts .aidd/specs/code/code-facts.json --out as-built.md
 bin/aidd-backport diff --model observed.jsonld --against intended.jsonld --out diff.json
 ```
@@ -55,3 +58,7 @@ Alloyの結果は指定された有限スコープ内の結果であり、無条
 - `candidate-prose.md`はAgent Skillが生成する候補であり、決定的な`as-built.md`とは混在させません。
 - schema 1.1の純粋関数candidate契約は、`Int`、`Bool`、制限付き`String`、Enum、非ネストのSet/List、整数加減乗算、基本Collection演算を対象とします。正規表現、文字列連結・長さ、除算・剰余、Collectionネスト、高階操作、外部I/O、可変ヒープは`UNSUPPORTED`です。
 - LLMが自然言語から生成した意味claimはすべて`candidate`かつ`generatedBy: llm`です。Skillは不足・曖昧な契約意味を補完せず、モデルを書き出す前に人間へ質問します。
+- `accept`はdecisionに列挙されたcandidateだけを昇格し、claimの意味ハッシュ、入力モデルハッシュ、HumanDecision証拠をacceptedモデルへ固定します。claim変更後の古い承認は`STALE_HUMAN_DECISION`として拒否され、Assumptionは`assumptions`で個別承認します。
+- TypeScriptのObserved Contract IRは、明示型を持つ純粋関数、判別可能な`Result`、順序付き`if/else`と`return`、対応済みの式だけを正規化します。任意call、外部I/O、動的dispatchは`UNSUPPORTED`です。
+- `refine`は明示指定されたaccepted contractとObserved Contract IRから独立したAlloy差分モデルを生成し、事前条件、成功事後条件、許可Error、全域性、結果一意性、型互換を検査します。`@aidd.contract`のIDは追跡情報であり、正しさの証拠には使用しません。
+- TypeScript参照generatorはaccepted canonical contractから`bigint`と判別可能な`Result`を決定生成します。一般的なTypeScript生成器ではなく、未対応の型・式・非total契約ではコードを出さず終了コード`4`を返します。生成物も`extract`と`refine`を通過して初めて受理対象になります。

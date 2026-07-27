@@ -263,3 +263,147 @@ test("lookup", () => {
   const assertion = fact(result, "testAssertion", "toBe");
   assert.equal(assertion.source.path, "test/lookup.spec.ts");
 });
+
+test("normalizes an annotated pure bigint Result function into observed contract IR", async () => {
+  const root = await fixture({
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: {
+        strict: true,
+        target: "ES2022",
+        module: "NodeNext",
+        moduleResolution: "NodeNext",
+      },
+      include: ["src/**/*.ts"],
+    }),
+    "src/withdraw.ts": `
+export type WithdrawResult =
+  | { ok: true; value: bigint }
+  | { ok: false; error: "InvalidBalance" | "InvalidAmount" | "InsufficientFunds" };
+
+/** @aidd.contract urn:aidd:withdraw:contract:withdraw */
+export function withdraw(balance: bigint, amount: bigint): WithdrawResult {
+  if (balance < 0n) return { ok: false, error: "InvalidBalance" };
+  if (amount <= 0n) return { ok: false, error: "InvalidAmount" };
+  if (balance < amount) return { ok: false, error: "InsufficientFunds" };
+  return { ok: true, value: balance - amount };
+}
+`,
+  });
+
+  const result = await extractRepository({ repo: root });
+  const contract = fact(result, "observedContract", "withdraw");
+
+  assert.deepEqual(contract.details, {
+    schemaVersion: "1.0",
+    contractIds: ["urn:aidd:withdraw:contract:withdraw"],
+    operation: "src/withdraw.ts#withdraw",
+    parameters: [
+      { name: "balance", valueType: { kind: "int" } },
+      { name: "amount", valueType: { kind: "int" } },
+    ],
+    resultType: { kind: "int" },
+    errorTypes: ["InsufficientFunds", "InvalidAmount", "InvalidBalance"],
+    cases: [
+      {
+        when: {
+          op: "lt",
+          args: [{ op: "valueRef", name: "balance" }, { op: "intLiteral", value: "0" }],
+        },
+        outcome: { kind: "error", error: "InvalidBalance" },
+      },
+      {
+        when: {
+          op: "lte",
+          args: [{ op: "valueRef", name: "amount" }, { op: "intLiteral", value: "0" }],
+        },
+        outcome: { kind: "error", error: "InvalidAmount" },
+      },
+      {
+        when: {
+          op: "lt",
+          args: [{ op: "valueRef", name: "balance" }, { op: "valueRef", name: "amount" }],
+        },
+        outcome: { kind: "error", error: "InsufficientFunds" },
+      },
+      {
+        when: { op: "literal", value: true },
+        outcome: {
+          kind: "success",
+          value: {
+            op: "sub",
+            args: [{ op: "valueRef", name: "balance" }, { op: "valueRef", name: "amount" }],
+          },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(result.diagnostics, []);
+});
+
+test("fails closed for an annotated contract with an arbitrary external call", async () => {
+  const root = await fixture({
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: { strict: true, target: "ES2022" },
+      include: ["src/**/*.ts"],
+    }),
+    "src/unsafe.ts": `
+declare function externalValue(): bigint;
+/** @aidd.contract urn:aidd:unsafe:contract */
+export function unsafe(value: bigint): { ok: true; value: bigint } {
+  return { ok: true, value: value + externalValue() };
+}
+`,
+  });
+
+  const result = await extractRepository({ repo: root });
+
+  assert.equal(result.facts.some((candidate) => candidate.kind === "observedContract"), false);
+  assert.ok(
+    result.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.code === "UNSUPPORTED_OBSERVED_CONTRACT" &&
+        diagnostic.severity === "unsupported",
+    ),
+  );
+});
+
+test("normalizes a complete if else result without semantic guessing", async () => {
+  const root = await fixture({
+    "tsconfig.json": JSON.stringify({
+      compilerOptions: { strict: true, target: "ES2022" },
+      include: ["src/**/*.ts"],
+    }),
+    "src/sign.ts": `
+type SignResult =
+  | { ok: true; value: bigint }
+  | { ok: false; error: "Negative" };
+
+/** @aidd.contract urn:aidd:sign:contract */
+export function sign(value: bigint): SignResult {
+  if (value < 0n) {
+    return { ok: false, error: "Negative" };
+  } else {
+    return { ok: true, value: value };
+  }
+}
+`,
+  });
+
+  const result = await extractRepository({ repo: root });
+  assert.deepEqual(result.diagnostics, []);
+  const contract = fact(result, "observedContract", "sign");
+
+  assert.deepEqual((contract.details as { cases: unknown[] }).cases, [
+    {
+      when: {
+        op: "lt",
+        args: [{ op: "valueRef", name: "value" }, { op: "intLiteral", value: "0" }],
+      },
+      outcome: { kind: "error", error: "Negative" },
+    },
+    {
+      when: { op: "literal", value: true },
+      outcome: { kind: "success", value: { op: "valueRef", name: "value" } },
+    },
+  ]);
+});

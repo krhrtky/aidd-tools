@@ -50,6 +50,19 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "total": { "type": "boolean" },
+        "approvedClaimHashes": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^urn:aidd:" },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "sourceModelSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "defines": { "$ref": "#/$defs/references" },
         "constrains": { "$ref": "#/$defs/references" },
         "derivesFrom": { "$ref": "#/$defs/references" },

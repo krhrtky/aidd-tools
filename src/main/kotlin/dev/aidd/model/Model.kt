@@ -22,6 +22,8 @@ data class ModelNode(
     val valueType: ValueType? = null,
     val members: List<String> = emptyList(),
     val total: Boolean? = null,
+    val approvedClaimHashes: Map<String, String> = emptyMap(),
+    val sourceModelSha256: String? = null,
 )
 
 data class ValueType(

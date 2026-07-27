@@ -62,12 +62,28 @@ class ModelValidator(
             }
             val nodesById = model.nodes.associateBy(ModelNode::id)
             val ids = nodesById.keys
-            val humanApprovedIds = model.nodes
-                .filter { it.type == "HumanDecision" && it.status == ClaimStatus.ACCEPTED }
-                .flatMap { decision ->
-                    decision.relations["defines"].orEmpty() + decision.relations["constrains"].orEmpty()
+            val validHumanDecisions = model.nodes.filter { decision ->
+                decision.type == "HumanDecision" &&
+                    decision.status == ClaimStatus.ACCEPTED &&
+                    decision.generatedBy == "human" &&
+                    decision.evidence.isNotEmpty() &&
+                    decision.hasCurrentApprovalBindings(model.schemaVersion, nodesById)
+            }
+            val humanApprovedClaimIds = validHumanDecisions
+                .flatMap { it.relations["defines"].orEmpty() }
+                .filterNot { model.schemaVersion == "1.0" && nodesById[it]?.type == "Assumption" }
+                .toSet()
+            val humanApprovedAssumptionIds = validHumanDecisions
+                .flatMap {
+                    it.relations["constrains"].orEmpty() +
+                        if (model.schemaVersion == "1.0") {
+                            it.relations["defines"].orEmpty().filter { id -> nodesById[id]?.type == "Assumption" }
+                        } else {
+                            emptyList()
+                        }
                 }
                 .toSet()
+            val humanApprovedIds = humanApprovedClaimIds + humanApprovedAssumptionIds
             model.nodes.forEach { node ->
                 if (model.schemaVersion == "1.0" && node.usesVersion11Feature()) {
                     add(
@@ -98,6 +114,17 @@ class ModelValidator(
                             ),
                         )
                     }
+                    if (model.schemaVersion == "1.1") {
+                        addAll(validateApprovalBindings(node, nodesById))
+                    }
+                } else if (node.approvedClaimHashes.isNotEmpty() || node.sourceModelSha256 != null) {
+                    add(
+                        Diagnostic(
+                            "UNEXPECTED_APPROVAL_BINDING",
+                            "Approval bindings are only valid on an accepted HumanDecision",
+                            node.id,
+                        ),
+                    )
                 }
                 if (node.type == "Transition") {
                     listOf("transitionsFrom", "transitionsTo").forEach { relation ->
@@ -141,7 +168,7 @@ class ModelValidator(
                 if (
                     node.status == ClaimStatus.ACCEPTED &&
                     node.basis == ClaimBasis.ASSUMED &&
-                    node.id !in humanApprovedIds
+                    node.id !in humanApprovedAssumptionIds
                 ) {
                     add(
                         Diagnostic(
@@ -155,7 +182,8 @@ class ModelValidator(
                 if (
                     node.status == ClaimStatus.ACCEPTED &&
                     node.generatedBy?.lowercase() == "llm" &&
-                    node.id !in humanApprovedIds
+                    node.id !in humanApprovedClaimIds &&
+                    node.id !in humanApprovedAssumptionIds
                 ) {
                     add(
                         Diagnostic(
@@ -195,8 +223,97 @@ class ModelValidator(
             valueType != null ||
             members.isNotEmpty() ||
             total != null ||
+            approvedClaimHashes.isNotEmpty() ||
+            sourceModelSha256 != null ||
             listOf("accepts", "returns", "mayFailWith").any { relations[it].orEmpty().isNotEmpty() } ||
             expression.containsVersion11Expression()
+
+    private fun ModelNode.hasCurrentApprovalBindings(
+        schemaVersion: String,
+        nodesById: Map<String, ModelNode>,
+    ): Boolean {
+        if (schemaVersion == "1.0" && approvedClaimHashes.isEmpty() && sourceModelSha256 == null) {
+            return true
+        }
+        val approvedIds = (
+            relations["defines"].orEmpty() + relations["constrains"].orEmpty()
+            ).toSet()
+        return sourceModelSha256?.matches(Regex("[a-f0-9]{64}")) == true &&
+            approvedClaimHashes.keys == approvedIds &&
+            approvedClaimHashes.all { (id, hash) ->
+                nodesById[id]?.let(ClaimHashing::sha256) == hash
+            }
+    }
+
+    private fun validateApprovalBindings(
+        decision: ModelNode,
+        nodesById: Map<String, ModelNode>,
+    ): List<Diagnostic> = buildList {
+        val definedIds = decision.relations["defines"].orEmpty()
+        val assumptionIds = decision.relations["constrains"].orEmpty()
+        val approvedIds = (definedIds + assumptionIds).toSet()
+        if (decision.sourceModelSha256?.matches(Regex("[a-f0-9]{64}")) != true) {
+            add(
+                Diagnostic(
+                    "INVALID_APPROVAL_SOURCE_HASH",
+                    "Accepted HumanDecision requires sourceModelSha256",
+                    decision.id,
+                    Severity.HUMAN_REVIEW,
+                ),
+            )
+        }
+        if (decision.approvedClaimHashes.keys != approvedIds) {
+            add(
+                Diagnostic(
+                    "INVALID_APPROVAL_BINDINGS",
+                    "approvedClaimHashes must exactly match defines and constrains targets",
+                    decision.id,
+                    Severity.HUMAN_REVIEW,
+                ),
+            )
+        }
+        definedIds.filter { nodesById[it]?.type == "Assumption" }.forEach {
+            add(
+                Diagnostic(
+                    "ASSUMPTION_REQUIRES_EXPLICIT_APPROVAL",
+                    "Assumptions must be approved through HumanDecision constrains",
+                    it,
+                    Severity.HUMAN_REVIEW,
+                ),
+            )
+        }
+        assumptionIds.filter { nodesById[it]?.type != "Assumption" }.forEach {
+            add(
+                Diagnostic(
+                    "INVALID_ASSUMPTION_APPROVAL",
+                    "HumanDecision constrains may approve only Assumption nodes",
+                    it,
+                    Severity.HUMAN_REVIEW,
+                ),
+            )
+        }
+        decision.approvedClaimHashes.toSortedMap().forEach { (id, expectedHash) ->
+            val actualHash = nodesById[id]?.let(ClaimHashing::sha256)
+            when {
+                !expectedHash.matches(Regex("[a-f0-9]{64}")) -> add(
+                    Diagnostic(
+                        "INVALID_APPROVED_CLAIM_HASH",
+                        "Approved claim hash is invalid",
+                        id,
+                        Severity.HUMAN_REVIEW,
+                    ),
+                )
+                actualHash != expectedHash -> add(
+                    Diagnostic(
+                        "STALE_HUMAN_DECISION",
+                        "Claim changed after HumanDecision approval",
+                        id,
+                        Severity.HUMAN_REVIEW,
+                    ),
+                )
+            }
+        }
+    }
 
     private fun com.fasterxml.jackson.databind.JsonNode?.containsVersion11Expression(): Boolean {
         if (this == null || !isObject) return false

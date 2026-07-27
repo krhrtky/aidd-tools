@@ -301,6 +301,171 @@ class FormalizeCliTest {
     }
 
     @Test
+    fun `accept promotes only explicitly approved claims and records a hash-bound human decision`() {
+        val directory = Files.createTempDirectory("aidd-formalize-accept")
+        Files.copy(
+            Path.of("examples/pure-function/requirements.md"),
+            directory.resolve("requirements.md"),
+        )
+        val model = directory.resolve("model.jsonld")
+        Files.copy(Path.of("examples/pure-function/model.jsonld"), model)
+        val source = ObjectMapper().readTree(model.toFile())
+        val claimIds = source.path("@graph").map { it.path("@id").asText() }.sorted()
+        val decision = directory.resolve("decision.json")
+        decision.writeText(
+            ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(
+                ObjectMapper().createObjectNode().apply {
+                    put("schemaVersion", "1.0")
+                    put("decisionId", "urn:aidd:withdraw:decision:accept-v1")
+                    put("approvedBy", "contract-owner")
+                    putArray("claims").also { array -> claimIds.forEach(array::add) }
+                    putArray("assumptions")
+                },
+            ) + "\n",
+        )
+        val accepted = directory.resolve("accepted.jsonld")
+
+        val exitCode = AiddCli().execute(
+            listOf(
+                "formalize",
+                "accept",
+                "--model",
+                model.toString(),
+                "--decision",
+                decision.toString(),
+                "--out",
+                accepted.toString(),
+            ),
+        )
+
+        assertEquals(0, exitCode)
+        val approved = ObjectMapper().readTree(accepted.toFile())
+        val approvedNodes = approved.path("@graph").associateBy { it.path("@id").asText() }
+        claimIds.forEach { assertEquals("accepted", approvedNodes.getValue(it).path("status").asText()) }
+        val humanDecision = approvedNodes.getValue("urn:aidd:withdraw:decision:accept-v1")
+        assertEquals("HumanDecision", humanDecision.path("@type").asText())
+        assertEquals("human", humanDecision.path("generatedBy").asText())
+        assertEquals(claimIds, humanDecision.path("defines").map { it.asText() }.sorted())
+        assertEquals(claimIds.toSet(), humanDecision.path("approvedClaimHashes").fieldNames().asSequence().toSet())
+        assertTrue(
+            humanDecision.path("approvedClaimHashes").properties().asSequence().all {
+                it.value.asText().matches(Regex("[a-f0-9]{64}"))
+            },
+        )
+        assertTrue(humanDecision.path("sourceModelSha256").asText().matches(Regex("[a-f0-9]{64}")))
+        assertTrue(directory.resolve("accepted.acceptance.json").exists())
+        assertEquals(0, AiddCli().execute(listOf("formalize", "validate", "--model", accepted.toString())))
+    }
+
+    @Test
+    fun `accept rejects implicit assumptions and stale claim changes invalidate approval`() {
+        val directory = Files.createTempDirectory("aidd-formalize-accept-assumption")
+        val requirement = directory.resolve("requirements.md")
+        requirement.writeText("gateway is atomic")
+        val sourceHash = dev.aidd.model.Hashing.sha256(requirement)
+        val model = directory.resolve("model.jsonld")
+        model.writeText(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.1",
+              "specId":"approval",
+              "@graph":[
+                {
+                  "@id":"urn:aidd:approval:requirement:gateway",
+                  "@type":"Requirement",
+                  "label":"gateway is atomic",
+                  "status":"candidate",
+                  "basis":"stated",
+                  "generatedBy":"llm",
+                  "evidence":[{"path":"requirements.md","startLine":1,"startColumn":1,
+                    "endLine":1,"endColumn":17,"sha256":"$sourceHash"}]
+                },
+                {
+                  "@id":"urn:aidd:approval:assumption:gateway",
+                  "@type":"Assumption",
+                  "label":"gateway atomicity",
+                  "status":"candidate",
+                  "basis":"assumed",
+                  "generatedBy":"llm",
+                  "derivesFrom":["urn:aidd:approval:requirement:gateway"]
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val invalidDecision = directory.resolve("invalid-decision.json")
+        invalidDecision.writeText(
+            """
+            {"schemaVersion":"1.0","decisionId":"urn:aidd:approval:decision:invalid",
+             "approvedBy":"owner","claims":[
+               "urn:aidd:approval:requirement:gateway",
+               "urn:aidd:approval:assumption:gateway"
+             ],"assumptions":[]}
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            2,
+            AiddCli().execute(
+                listOf(
+                    "formalize", "accept",
+                    "--model", model.toString(),
+                    "--decision", invalidDecision.toString(),
+                    "--out", directory.resolve("invalid.jsonld").toString(),
+                ),
+            ),
+        )
+        val missingDecision = directory.resolve("missing-decision.json")
+        missingDecision.writeText(
+            """
+            {"schemaVersion":"1.0","decisionId":"urn:aidd:approval:decision:missing",
+             "approvedBy":"owner","claims":["urn:aidd:approval:missing"],"assumptions":[]}
+            """.trimIndent(),
+        )
+        assertEquals(
+            2,
+            AiddCli().execute(
+                listOf(
+                    "formalize", "accept",
+                    "--model", model.toString(),
+                    "--decision", missingDecision.toString(),
+                    "--out", directory.resolve("missing.jsonld").toString(),
+                ),
+            ),
+        )
+
+        val decision = directory.resolve("decision.json")
+        decision.writeText(
+            """
+            {"schemaVersion":"1.0","decisionId":"urn:aidd:approval:decision:valid",
+             "approvedBy":"owner","claims":["urn:aidd:approval:requirement:gateway"],
+             "assumptions":["urn:aidd:approval:assumption:gateway"]}
+            """.trimIndent(),
+        )
+        val accepted = directory.resolve("accepted.jsonld")
+        assertEquals(
+            0,
+            AiddCli().execute(
+                listOf(
+                    "formalize", "accept",
+                    "--model", model.toString(),
+                    "--decision", decision.toString(),
+                    "--out", accepted.toString(),
+                ),
+            ),
+        )
+        val changed = ObjectMapper().readTree(accepted.toFile())
+        val requirementNode = changed.path("@graph").first {
+            it.path("@id").asText() == "urn:aidd:approval:requirement:gateway"
+        } as com.fasterxml.jackson.databind.node.ObjectNode
+        requirementNode.put("label", "changed after approval")
+        accepted.writeText(ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(changed))
+
+        assertEquals(5, AiddCli().execute(listOf("formalize", "validate", "--model", accepted.toString())))
+    }
+
+    @Test
     fun `render refuses a symlink output without changing its target`() {
         val directory = Files.createTempDirectory("aidd-formalize-symlink")
         val model = directory.resolve("model.jsonld")

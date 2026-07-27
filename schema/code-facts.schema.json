@@ -46,7 +46,7 @@
         "required": ["code", "severity", "message"],
         "properties": {
           "code": { "type": "string" },
-          "severity": { "enum": ["warning", "error", "UNSUPPORTED"] },
+            "severity": { "enum": ["warning", "error", "unsupported", "UNSUPPORTED"] },
           "message": { "type": "string" },
           "source": { "$ref": "#/$defs/source" },
           "details": { "type": "object" }
