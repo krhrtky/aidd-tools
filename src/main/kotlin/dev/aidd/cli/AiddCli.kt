@@ -7,6 +7,7 @@ import dev.aidd.alloy.Bounds
 import dev.aidd.alloy.ClaimSelection
 import dev.aidd.alloy.VerificationResult
 import dev.aidd.alloy.VerificationStatus
+import dev.aidd.backport.BackportDiagnosticSeverity
 import dev.aidd.backport.BackportService
 import dev.aidd.generation.TypeScriptGenerator
 import dev.aidd.generation.UnsupportedGenerationException
@@ -90,8 +91,17 @@ class AiddCli(
             boundsPath = args.optionalPath("--bounds"),
             outputDirectory = args.requiredPath("--out"),
             arguments = args.raw,
+            acceptedAlloyAlias = true,
         )
-        "render" -> renderFacts(args.requiredPath("--facts"), args.requiredPath("--out"))
+        "explore" -> exploreModel(
+            modelPath = args.requiredPath("--model"),
+            boundsPath = args.optionalPath("--bounds"),
+            outputDirectory = args.requiredPath("--out"),
+            arguments = args.raw,
+            artifacts = ExplorationArtifacts.BACKPORT,
+            auditFactsPath = args.optionalPath("--facts"),
+        )
+        "render" -> renderBackport(args)
         "diff" -> diffModels(
             observed = args.requiredPath("--model"),
             intended = args.requiredPath("--against"),
@@ -108,7 +118,7 @@ class AiddCli(
         )
         "extract" -> runExtractor(args)
         "run" -> runBackport(args)
-        else -> usage("Expected backport extract, validate, check, refine, render, diff, or run")
+        else -> usage("Expected backport extract, validate, check, explore, refine, render, diff, or run")
     }
 
     private fun validateModel(modelPath: Path): Int {
@@ -139,6 +149,8 @@ class AiddCli(
         boundsPath: Path?,
         outputDirectory: Path,
         arguments: List<String>,
+        acceptedAlloyAlias: Boolean = false,
+        auditFactsPath: Path? = null,
     ): Int {
         val validation = validator.validate(modelPath)
         if (!validation.isValid) {
@@ -159,11 +171,23 @@ class AiddCli(
         }
         val alloy = compiler.compile(model, bounds)
         SafePaths.writeText(safeOutputDirectory.resolve("model.als"), alloy)
+        if (acceptedAlloyAlias) {
+            SafePaths.writeText(safeOutputDirectory.resolve("accepted.als"), alloy)
+        }
         JsonOutput.write(safeOutputDirectory.resolve("bounds.json"), bounds)
         val verification = runner.run(alloy, bounds, counterexamples)
         JsonOutput.write(safeOutputDirectory.resolve("verification.json"), verification)
         SafePaths.writeText(safeOutputDirectory.resolve("spec.md"), renderer.renderAccepted(model))
-        writeManifest(safeOutputDirectory, targetModel, bounds, verification, arguments, model)
+        writeManifest(
+            safeOutputDirectory,
+            targetModel,
+            bounds,
+            verification,
+            arguments,
+            model,
+            acceptedAlloyAlias = acceptedAlloyAlias,
+            auditFactsPath = auditFactsPath,
+        )
         return if (verification.status == VerificationStatus.PROVISIONAL) {
             explorationExitCode(verification)
         } else {
@@ -176,6 +200,8 @@ class AiddCli(
         boundsPath: Path?,
         outputDirectory: Path,
         arguments: List<String>,
+        artifacts: ExplorationArtifacts = ExplorationArtifacts.FORMALIZE,
+        auditFactsPath: Path? = null,
     ): Int {
         val validation = validator.validate(modelPath)
         if (!validation.isValid) {
@@ -199,7 +225,7 @@ class AiddCli(
         } catch (exception: Exception) {
             val message = exception.message ?: exception::class.java.simpleName
             SafePaths.writeText(
-                safeOutputDirectory.resolve("model.als"),
+                safeOutputDirectory.resolve(artifacts.alloy),
                 "// Candidate model could not be compiled: $message\n",
             )
             JsonOutput.write(safeOutputDirectory.resolve("bounds.json"), bounds)
@@ -210,8 +236,11 @@ class AiddCli(
                 commands = emptyList(),
                 diagnostics = listOf(message),
             )
-            JsonOutput.write(safeOutputDirectory.resolve("verification.json"), unsupported)
-            SafePaths.writeText(safeOutputDirectory.resolve("candidate-spec.md"), renderer.renderCandidates(model))
+            JsonOutput.write(safeOutputDirectory.resolve(artifacts.verification), unsupported)
+            SafePaths.writeText(
+                safeOutputDirectory.resolve(artifacts.markdown),
+                artifacts.render(renderer, model),
+            )
             writeManifest(
                 outputDirectory = safeOutputDirectory,
                 modelPath = targetModel,
@@ -220,14 +249,19 @@ class AiddCli(
                 arguments = arguments,
                 model = model,
                 mode = "candidate-exploration",
+                explorationArtifacts = artifacts,
+                auditFactsPath = auditFactsPath,
             )
-            return 4
+            return artifacts.unsupportedExitCode
         }
-        SafePaths.writeText(safeOutputDirectory.resolve("model.als"), alloy)
+        SafePaths.writeText(safeOutputDirectory.resolve(artifacts.alloy), alloy)
         JsonOutput.write(safeOutputDirectory.resolve("bounds.json"), bounds)
         val verification = runner.run(alloy, bounds, counterexamples, forceProvisional = true)
-        JsonOutput.write(safeOutputDirectory.resolve("verification.json"), verification)
-        SafePaths.writeText(safeOutputDirectory.resolve("candidate-spec.md"), renderer.renderCandidates(model))
+        JsonOutput.write(safeOutputDirectory.resolve(artifacts.verification), verification)
+        SafePaths.writeText(
+            safeOutputDirectory.resolve(artifacts.markdown),
+            artifacts.render(renderer, model),
+        )
         writeManifest(
             outputDirectory = safeOutputDirectory,
             modelPath = targetModel,
@@ -236,8 +270,14 @@ class AiddCli(
             arguments = arguments,
             model = model,
             mode = "candidate-exploration",
+            explorationArtifacts = artifacts,
+            auditFactsPath = auditFactsPath,
         )
-        return explorationExitCode(verification)
+        return if (artifacts == ExplorationArtifacts.BACKPORT) {
+            backportExplorationExitCode(verification)
+        } else {
+            explorationExitCode(verification)
+        }
     }
 
     private fun renderModel(modelPath: Path, output: Path): Int {
@@ -246,6 +286,30 @@ class AiddCli(
             return validateModel(modelPath)
         }
         SafePaths.writeText(output, renderer.renderAccepted(validation.model!!))
+        return if (validation.requiresHumanReview) 5 else 0
+    }
+
+    private fun renderBackport(args: Arguments): Int {
+        val output = args.requiredPath("--out")
+        val facts = args.optionalPath("--facts")
+        if (facts != null) {
+            if (args.optionalPath("--model") != null || args.optional("--view") != null) {
+                throw CliException("render accepts either --facts or --model with --view", 2)
+            }
+            return renderFacts(facts, output)
+        }
+        val modelPath = args.requiredPath("--model")
+        val view = args.required("--view")
+        val validation = validator.validate(modelPath)
+        if (!validation.isValid) {
+            return validateModel(modelPath)
+        }
+        val rendered = when (view) {
+            "accepted" -> renderer.renderAccepted(validation.model!!)
+            "candidate-business" -> renderer.renderCandidateBusiness(validation.model!!)
+            else -> throw CliException("--view must be accepted or candidate-business", 2)
+        }
+        SafePaths.writeText(output, rendered)
         return if (validation.requiresHumanReview) 5 else 0
     }
 
@@ -291,13 +355,29 @@ class AiddCli(
         if (modelCode != 0) {
             return modelCode
         }
-        val diagnostics = backport.validateFacts(facts, model, repository)
+        val diagnostics = backport.validateFactsDetailed(facts, model, repository)
         val json = JsonOutput.mapper.createObjectNode().apply {
             put("valid", diagnostics.isEmpty())
-            putArray("diagnostics").also { array -> diagnostics.forEach(array::add) }
+            putArray("diagnostics").also { array ->
+                diagnostics.forEach { array.add(it.message) }
+            }
+            putArray("diagnosticDetails").also { array ->
+                diagnostics.forEach { diagnostic ->
+                    array.addObject().apply {
+                        put("code", diagnostic.code)
+                        put("severity", diagnostic.severity.name)
+                        put("message", diagnostic.message)
+                        diagnostic.nodeId?.let { put("nodeId", it) }
+                    }
+                }
+            }
         }
         println(JsonOutput.mapper.writerWithDefaultPrettyPrinter().writeValueAsString(json))
-        return if (diagnostics.isEmpty()) 0 else 2
+        return when {
+            diagnostics.isEmpty() -> 0
+            diagnostics.any { it.severity == BackportDiagnosticSeverity.ERROR } -> 2
+            else -> 3
+        }
     }
 
     private fun renderFacts(facts: Path, output: Path): Int {
@@ -444,6 +524,8 @@ class AiddCli(
             args.optionalPath("--bounds"),
             args.requiredPath("--out"),
             args.raw,
+            acceptedAlloyAlias = true,
+            auditFactsPath = facts,
         )
     }
 
@@ -528,16 +610,29 @@ class AiddCli(
         arguments: List<String>,
         model: dev.aidd.model.AiddModel,
         mode: String = "accepted-verification",
+        explorationArtifacts: ExplorationArtifacts = ExplorationArtifacts.FORMALIZE,
+        acceptedAlloyAlias: Boolean = false,
+        auditFactsPath: Path? = null,
     ) {
         val outputHashes = linkedMapOf<String, String>()
-        val renderedSpecification = if (mode == "candidate-exploration") "candidate-spec.md" else "spec.md"
+        val renderedSpecification = if (mode == "candidate-exploration") {
+            explorationArtifacts.markdown
+        } else {
+            "spec.md"
+        }
         val generated = mutableListOf(
             "model.jsonld",
-            "model.als",
+            if (mode == "candidate-exploration") explorationArtifacts.alloy else "model.als",
             "bounds.json",
-            "verification.json",
+            if (mode == "candidate-exploration") explorationArtifacts.verification else "verification.json",
             renderedSpecification,
         )
+        if (acceptedAlloyAlias) {
+            generated += "accepted.als"
+        }
+        listOf("code-facts.json", "as-built.md")
+            .filter { outputDirectory.resolve(it).exists() }
+            .forEach(generated::add)
         Files.list(outputDirectory.resolve("counterexamples")).use { entries ->
             generated += entries
                 .filter { Files.isRegularFile(it) }
@@ -554,10 +649,47 @@ class AiddCli(
             put("toolVersion", "0.1.0")
             put("alloyVersion", "6.2.0")
             put("mode", mode)
+            put("command", arguments.take(2).joinToString(" "))
             put("inputModelSha256", Hashing.sha256(modelPath))
+            auditFactsPath?.let { factsPath ->
+                put("inputCodeFactsSha256", Hashing.sha256(factsPath))
+                val extractor = JsonOutput.mapper.readTree(factsPath.toFile()).path("extractor")
+                if (extractor.isObject) {
+                    set<com.fasterxml.jackson.databind.JsonNode>("extractor", extractor)
+                }
+            }
             set<ObjectNode>("bounds", JsonOutput.mapper.valueToTree(bounds))
             put("status", verification.status.name)
+            verification.boundedOutcome?.let { put("boundedOutcome", it.name) }
+            put("boundsApproval", if (bounds.approved) "APPROVED" else "UNAPPROVED")
             putArray("arguments").also { array -> arguments.forEach(array::add) }
+            putArray("diagnostics").also { array ->
+                verification.diagnostics.sorted().forEach { message ->
+                    array.addObject().apply {
+                        put(
+                            "code",
+                            when (verification.status) {
+                                VerificationStatus.UNSUPPORTED -> "UNSUPPORTED"
+                                VerificationStatus.TIMEOUT -> "TIMEOUT"
+                                else -> "VERIFICATION_DIAGNOSTIC"
+                            },
+                        )
+                        put(
+                            "severity",
+                            if (verification.status in setOf(
+                                    VerificationStatus.UNSUPPORTED,
+                                    VerificationStatus.TIMEOUT,
+                                )
+                            ) {
+                                "ERROR"
+                            } else {
+                                "WARNING"
+                            },
+                        )
+                        put("message", message)
+                    }
+                }
+            }
             putArray("assumptions").also { array ->
                 model.nodes
                     .filter {
@@ -620,7 +752,50 @@ class AiddCli(
         }
     }
 
+    private fun backportExplorationExitCode(verification: VerificationResult): Int =
+        if (
+            verification.status in setOf(VerificationStatus.TIMEOUT, VerificationStatus.UNSUPPORTED) ||
+            verification.boundedOutcome in setOf(VerificationStatus.TIMEOUT, VerificationStatus.UNSUPPORTED)
+        ) {
+            3
+        } else if (
+            verification.status == VerificationStatus.HUMAN_REVIEW_REQUIRED ||
+            verification.boundedOutcome == VerificationStatus.HUMAN_REVIEW_REQUIRED
+        ) {
+            5
+        } else {
+            0
+        }
+
     private fun usage(message: String): Nothing = throw CliException(message, 2)
+}
+
+private enum class ExplorationArtifacts(
+    val alloy: String,
+    val verification: String,
+    val markdown: String,
+    val unsupportedExitCode: Int,
+) {
+    FORMALIZE(
+        alloy = "model.als",
+        verification = "verification.json",
+        markdown = "candidate-spec.md",
+        unsupportedExitCode = 4,
+    ),
+    BACKPORT(
+        alloy = "candidate.als",
+        verification = "exploration.json",
+        markdown = "candidate-prose.md",
+        unsupportedExitCode = 3,
+    ),
+    ;
+
+    fun render(renderer: SpecRenderer, model: dev.aidd.model.AiddModel): String =
+        if (this == BACKPORT) {
+            renderer.renderCandidateBusiness(model)
+        } else {
+            renderer.renderCandidates(model)
+        }
 }
 
 private class CliException(message: String, val exitCode: Int) : RuntimeException(message)

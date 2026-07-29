@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ArrayNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import dev.aidd.model.ClaimBasis
 import dev.aidd.model.ClaimStatus
 import dev.aidd.model.Hashing
 import dev.aidd.model.ModelParser
@@ -17,6 +18,18 @@ data class DiffResult(
     val extra: List<String>,
     val contradictions: List<String>,
     val evidenceMissing: List<String>,
+)
+
+enum class BackportDiagnosticSeverity {
+    ERROR,
+    UNSUPPORTED,
+}
+
+data class BackportDiagnostic(
+    val code: String,
+    val severity: BackportDiagnosticSeverity,
+    val message: String,
+    val nodeId: String? = null,
 )
 
 class BackportService(
@@ -137,6 +150,80 @@ class BackportService(
                 }
             }
         return diagnostics.sorted()
+    }
+
+    fun validateFactsDetailed(
+        factsPath: Path,
+        modelPath: Path,
+        repository: Path? = null,
+    ): List<BackportDiagnostic> {
+        val factsRoot = objectMapper.readTree(factsPath.toFile())
+        val unsupportedCodes = factsRoot.path("diagnostics")
+            .takeIf(JsonNode::isArray)
+            ?.filter { it.path("severity").asText().lowercase() == "unsupported" }
+            ?.map { it.path("code").asText("UNSUPPORTED") }
+            ?.toSet()
+            .orEmpty()
+        val factIds = factsRoot.path("facts")
+            .takeIf(JsonNode::isArray)
+            ?.map { it.path("id").asText() }
+            ?.toSet()
+            .orEmpty()
+        val legacyDiagnostics = validateFacts(factsPath, modelPath, repository).map { message ->
+            val extractorCode = message
+                .takeIf { it.startsWith("Extractor ") }
+                ?.substringAfter("Extractor ")
+                ?.substringBefore(":")
+            BackportDiagnostic(
+                code = extractorCode ?: "INVALID_CODE_FACTS",
+                severity = if (extractorCode in unsupportedCodes) {
+                    BackportDiagnosticSeverity.UNSUPPORTED
+                } else {
+                    BackportDiagnosticSeverity.ERROR
+                },
+                message = message,
+            )
+        }
+        val candidateDiagnostics = parser.parse(modelPath).nodes
+            .filter { it.status == ClaimStatus.CANDIDATE && it.generatedBy == "llm" }
+            .flatMap { node ->
+                buildList {
+                    if (node.basis == ClaimBasis.OBSERVED) {
+                        add(
+                            BackportDiagnostic(
+                                code = "INVALID_LLM_CANDIDATE_BASIS",
+                                severity = BackportDiagnosticSeverity.ERROR,
+                                message = "LLM business meaning must use stated, derived, or assumed basis",
+                                nodeId = node.id,
+                            ),
+                        )
+                    }
+                    val evidenceReferences = node.relations["evidencedBy"].orEmpty()
+                    if (evidenceReferences.isEmpty()) {
+                        add(
+                            BackportDiagnostic(
+                                code = "MISSING_CANDIDATE_EVIDENCE",
+                                severity = BackportDiagnosticSeverity.ERROR,
+                                message = "LLM business meaning requires at least one evidencedBy CodeFact",
+                                nodeId = node.id,
+                            ),
+                        )
+                    }
+                    evidenceReferences.filterNot(factIds::contains).sorted().forEach { factId ->
+                        add(
+                            BackportDiagnostic(
+                                code = "MISSING_CODE_FACT",
+                                severity = BackportDiagnosticSeverity.ERROR,
+                                message = "evidencedBy refers to missing CodeFact: $factId",
+                                nodeId = node.id,
+                            ),
+                        )
+                    }
+                }
+            }
+        return (legacyDiagnostics + candidateDiagnostics).sortedWith(
+            compareBy(BackportDiagnostic::code, { it.nodeId.orEmpty() }, BackportDiagnostic::message),
+        )
     }
 
     fun renderFacts(factsPath: Path): String {

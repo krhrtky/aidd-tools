@@ -103,6 +103,19 @@ class ModelValidator(
                 if (node.generatedBy != null && node.generatedBy !in setOf("llm", "human", "harness", "extractor")) {
                     add(Diagnostic("INVALID_GENERATOR", "generatedBy must be llm, human, harness, or extractor", node.id))
                 }
+                if (
+                    node.status == ClaimStatus.CANDIDATE &&
+                    node.generatedBy == "llm" &&
+                    node.basis == ClaimBasis.OBSERVED
+                ) {
+                    add(
+                        Diagnostic(
+                            "INVALID_LLM_CANDIDATE_BASIS",
+                            "LLM candidate meaning must use stated, derived, or assumed basis",
+                            node.id,
+                        ),
+                    )
+                }
                 if (node.type == "HumanDecision" && node.status == ClaimStatus.ACCEPTED) {
                     if (node.generatedBy != "human" || node.evidence.isEmpty()) {
                         add(

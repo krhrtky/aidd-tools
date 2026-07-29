@@ -8,7 +8,7 @@ cd "$tools_root"
 
 python3 scripts/validate-information-placement.py
 python3 -m unittest discover -s scripts/tests
-./gradlew test installDist --no-daemon
+./gradlew test jacocoTestReport verifyCriticalSourceCoverage installDist --no-daemon
 ./gradlew -p extractors/kotlin test installDist --no-daemon
 pnpm --dir extractors/typescript test
 pnpm --dir extractors/typescript build

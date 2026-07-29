@@ -22,6 +22,22 @@
       "type": "object",
       "required": ["@id", "@type", "status", "basis"],
       "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "generatedBy": { "const": "llm" },
+              "status": { "const": "candidate" }
+            },
+            "required": ["generatedBy", "status"]
+          },
+          "then": {
+            "properties": {
+              "basis": { "enum": ["stated", "derived", "assumed"] }
+            }
+          }
+        }
+      ],
       "properties": {
         "@id": { "type": "string", "pattern": "^urn:aidd:" },
         "@type": {

@@ -8,6 +8,227 @@ import kotlin.test.assertTrue
 
 class ModelValidatorTest {
     @Test
+    fun `path validation converts parser failures to invalid model diagnostics`() {
+        val directory = Files.createTempDirectory("aidd-parser-failure")
+        val model = directory.resolve("model.jsonld")
+        model.writeText("""{"unexpected":true}""")
+
+        val result = ModelValidator().validate(model)
+
+        assertEquals(null, result.model)
+        assertEquals(listOf("INVALID_MODEL"), result.diagnostics.map(Diagnostic::code))
+    }
+
+    @Test
+    fun `validation reports generator transition approval provenance and evidence violations`() {
+        val directory = Files.createTempDirectory("aidd-multiple-invalid")
+        val evidence = directory.resolve("evidence.md")
+        evidence.writeText("evidence")
+        val model = ModelParser().parse(
+            """
+            {
+              "@context":"invalid-context",
+              "schemaVersion":"1.0",
+              "specId":"invalid spec",
+              "@graph":[
+                {
+                  "@id":"invalid-id",
+                  "@type":"Unknown",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "generatedBy":"machine"
+                },
+                {
+                  "@id":"urn:aidd:invalid:transition:missing",
+                  "@type":"Transition",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "dependsOn":["urn:aidd:invalid:missing"]
+                },
+                {
+                  "@id":"urn:aidd:invalid:requirement:endpoint",
+                  "@type":"Requirement",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "derivesFrom":["urn:aidd:invalid:transition:missing"]
+                },
+                {
+                  "@id":"urn:aidd:invalid:transition:wrong",
+                  "@type":"Transition",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "transitionsFrom":["urn:aidd:invalid:requirement:endpoint"],
+                  "transitionsTo":["urn:aidd:invalid:requirement:endpoint"]
+                },
+                {
+                  "@id":"urn:aidd:invalid:assumption:accepted",
+                  "@type":"Assumption",
+                  "status":"accepted",
+                  "basis":"assumed"
+                },
+                {
+                  "@id":"urn:aidd:invalid:decision:accepted",
+                  "@type":"HumanDecision",
+                  "status":"accepted",
+                  "basis":"stated",
+                  "generatedBy":"harness",
+                  "defines":["urn:aidd:invalid:assumption:accepted"]
+                },
+                {
+                  "@id":"urn:aidd:invalid:evidence:span",
+                  "@type":"Requirement",
+                  "status":"candidate",
+                  "basis":"stated",
+                  "evidence":[{
+                    "path":"evidence.md",
+                    "startLine":2,
+                    "startColumn":2,
+                    "endLine":1,
+                    "endColumn":1,
+                    "sha256":"invalid"
+                  }]
+                },
+                {
+                  "@id":"urn:aidd:invalid:parameter:v11",
+                  "@type":"Parameter",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "valueType":{"kind":"int"},
+                  "derivesFrom":["urn:aidd:invalid:requirement:endpoint"]
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val codes = ModelValidator().validate(model, directory).diagnostics.map(Diagnostic::code).toSet()
+
+        setOf(
+            "INVALID_CONTEXT",
+            "INVALID_SPEC_ID",
+            "UNSTABLE_ID",
+            "UNKNOWN_NODE_TYPE",
+            "INVALID_GENERATOR",
+            "INVALID_TRANSITION_ENDPOINT",
+            "INVALID_TRANSITION_ENDPOINT_TYPE",
+            "DANGLING_REFERENCE",
+            "ACCEPTED_ASSUMPTION_REQUIRES_DECISION",
+            "INVALID_HUMAN_DECISION",
+            "MISSING_PROVENANCE_EVIDENCE",
+            "INVALID_SOURCE_SPAN",
+            "FEATURE_REQUIRES_SCHEMA_1_1",
+        ).forEach { code -> assertTrue(code in codes, code) }
+    }
+
+    @Test
+    fun `schema 1_1 approval bindings report invalid targets hashes and source`() {
+        val model = ModelParser().parse(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.1",
+              "specId":"approval-errors",
+              "@graph":[
+                {
+                  "@id":"urn:aidd:approval-errors:requirement:one",
+                  "@type":"Requirement",
+                  "status":"candidate",
+                  "basis":"derived",
+                  "derivesFrom":["urn:aidd:approval-errors:assumption:one"]
+                },
+                {
+                  "@id":"urn:aidd:approval-errors:assumption:one",
+                  "@type":"Assumption",
+                  "status":"candidate",
+                  "basis":"assumed",
+                  "derivesFrom":["urn:aidd:approval-errors:requirement:one"]
+                },
+                {
+                  "@id":"urn:aidd:approval-errors:decision:targets",
+                  "@type":"HumanDecision",
+                  "status":"accepted",
+                  "basis":"stated",
+                  "generatedBy":"human",
+                  "evidence":[{
+                    "path":"decision.md",
+                    "startLine":1,
+                    "startColumn":1,
+                    "endLine":1,
+                    "endColumn":1,
+                    "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }],
+                  "defines":["urn:aidd:approval-errors:assumption:one"],
+                  "constrains":["urn:aidd:approval-errors:requirement:one"],
+                  "approvedClaimHashes":{
+                    "urn:aidd:approval-errors:assumption:one":"invalid",
+                    "urn:aidd:approval-errors:requirement:one":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                  },
+                  "sourceModelSha256":"invalid"
+                },
+                {
+                  "@id":"urn:aidd:approval-errors:decision:mismatch",
+                  "@type":"HumanDecision",
+                  "status":"accepted",
+                  "basis":"stated",
+                  "generatedBy":"human",
+                  "evidence":[{
+                    "path":"decision.md",
+                    "startLine":1,
+                    "startColumn":1,
+                    "endLine":1,
+                    "endColumn":1,
+                    "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                  }],
+                  "defines":["urn:aidd:approval-errors:requirement:one"],
+                  "approvedClaimHashes":{
+                    "urn:aidd:approval-errors:assumption:one":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                  },
+                  "sourceModelSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+
+        val codes = ModelValidator().validate(model).diagnostics.map(Diagnostic::code).toSet()
+
+        setOf(
+            "INVALID_APPROVAL_SOURCE_HASH",
+            "INVALID_APPROVAL_BINDINGS",
+            "ASSUMPTION_REQUIRES_EXPLICIT_APPROVAL",
+            "INVALID_ASSUMPTION_APPROVAL",
+            "INVALID_APPROVED_CLAIM_HASH",
+            "STALE_HUMAN_DECISION",
+        ).forEach { code -> assertTrue(code in codes, code) }
+    }
+
+    @Test
+    fun `llm candidate cannot claim directly observed business meaning`() {
+        val model = ModelParser().parse(
+            """
+            {
+              "@context":"https://aidd.dev/context/v1",
+              "schemaVersion":"1.1",
+              "specId":"candidate",
+              "@graph":[{
+                "@id":"urn:aidd:candidate:requirement:purpose",
+                "@type":"Requirement",
+                "label":"business purpose",
+                "status":"candidate",
+                "basis":"observed",
+                "generatedBy":"llm",
+                "evidencedBy":["urn:aidd:fact:purpose"]
+              }]
+            }
+            """.trimIndent(),
+        )
+
+        val diagnostics = ModelValidator().validate(model).diagnostics
+
+        assertTrue(diagnostics.any { it.code == "INVALID_LLM_CANDIDATE_BASIS" })
+    }
+
+    @Test
     fun `valid model has no diagnostics`() {
         val directory = Files.createTempDirectory("aidd-model")
         val source = directory.resolve("requirements.md")
